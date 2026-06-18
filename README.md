@@ -92,17 +92,18 @@ python src/cctv_detector.py --device-id "CCTV-CAM-01"
 python src/cctv_detector.py --source "http://192.168.29.100:8080/video" --device-id "CCTV-CAM-02"
 ```
 
-### 6. Calibrate No-Parking Zones
-To draw custom no-parking polygons for your physical hackathon model:
+### 6. Calibrate Road Width & No-Parking Zones
+To precisely map physical road dimensions and custom no-parking polygons for your hardware setup:
 
 1. Run the calibration mode for Camera 1:
    ```bash
    python src/cctv_detector.py --device-id "CCTV-CAM-01" --calibrate
    ```
-2. A window will open. **Click the 4 corners** of your no-parking zone. Press `ENTER`.
-3. The terminal will print out a dictionary string.
-4. Copy that string and paste it into the `NO_PARKING_ZONES` variable inside `src/cctv_detector.py` (around line 72).
-5. Repeat the exact same process for Camera 2 by changing the device-id to `"CCTV-CAM-02"` and specifying the source!
+2. A window will open. **Click 2 points** on the LEFT and RIGHT edges of the road to set the road width.
+3. **Click the 4 corners** of each no-parking zone. Press `ENTER`.
+4. The terminal will print out a dictionary string.
+5. Copy that string and paste it into the `ROAD_CONFIG` variable inside `src/cctv_detector.py` (around line 66).
+6. Repeat the exact same process for Camera 2 by changing the device-id to `"CCTV-CAM-02"` and specifying the source!
 
 ---
 
@@ -122,16 +123,15 @@ To draw custom no-parking polygons for your physical hackathon model:
 ## 🧠 Core Innovation — Congestion Impact Score (CIS)
 
 ```
-CIS = 100 × ( 0.35·VehicleWeight + 0.20·JunctionProximity
-            + 0.25·LocationFrequency + 0.20·TimeOfDayFactor )
+CIS = ( BaseVehicleWeight + ZonePenalty + LaneBlockagePenalty ) × TimeOfDayFactor
 ```
-*Note: In the Live CCTV implementation, the TimeOfDayFactor dynamically applies a 1.5x multiplier if the real-world clock is currently in rush hour!*
+*Note: The **Lane Blockage Penalty** dynamically calculates the vehicle's bounding-box width relative to the physical road width. The **TimeOfDayFactor** applies a 1.3x multiplier during rush hour and 0.5x during night hours!*
 
 | CIS Range | Hardware Trigger | Action |
 |---|---|---|
-| 0–50 | None | Monitor only |
-| 51–80 | 🟡 Solid Yellow LED | Dispatch patrol for e-challan |
-| 81–100 | 🔴 Solid Red + Buzzer | Emergency heavy-tow clearance |
+| 0–40 | None | Monitor only |
+| 41–70 | 🟡 Solid Yellow LED | Dispatch patrol for e-challan |
+| 71–100 | 🔴 Solid Red + Buzzer | Emergency heavy-tow clearance |
 
 ---
 
