@@ -1,0 +1,158 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+#include <time.h>
+
+// ---------- CONFIG ----------
+const char* WIFI_SSID     = "Ishani";
+const char* WIFI_PASSWORD = "07186556";
+// Ensure this points to your laptop's IP address where the FastAPI server is running
+const char* SERVER_URL    = "http://192.168.29.219:8000/api/sensor-event";
+
+const char* DEVICE_ID = "ESP32-NODE-01";
+const char* ZONE_ID   = "A1";
+
+// Pin mapping (All on the TOP row now!)
+const int TRIG_PIN   = 12;      // G12
+const int ECHO_PIN   = 13;      // G13
+const int LED_RED    = 25;      // G25
+const int LED_GREEN  = 26;      // G26
+const int LED_YELLOW = 27;      // G27
+const int BUZZER_PIN = 14;      // G14
+
+// Tunable thresholds
+const float OCCUPIED_DISTANCE_CM       = 80.0;
+const int   DEBOUNCE_READINGS          = 5;
+const unsigned long VIOLATION_THRESHOLD_MS = 10000; // 10 seconds for demo purposes (production would be minutes)
+
+// ---------- STATE ----------
+enum ZoneState { VACANT, OCCUPIED, VIOLATION };
+ZoneState currentState = VACANT;
+unsigned long occupiedSince = 0;
+int belowCount = 0, aboveCount = 0;
+
+float readDistanceCm() {
+  digitalWrite(TRIG_PIN, LOW);  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH); delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+  long duration = pulseIn(ECHO_PIN, HIGH, 30000); // 30ms timeout
+  if (duration == 0) return -1;
+  return duration * 0.0343 / 2.0;
+}
+
+void setLed(bool r, bool g, bool y) {
+  digitalWrite(LED_RED, r); 
+  digitalWrite(LED_GREEN, g); 
+  digitalWrite(LED_YELLOW, y);
+}
+
+void sendEvent(const char* eventType, unsigned long durationSec, float distanceCm) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi not connected. Can't send event.");
+    return;
+  }
+  
+  HTTPClient http;
+  http.begin(SERVER_URL);
+  http.addHeader("Content-Type", "application/json");
+
+  StaticJsonDocument<256> doc;
+  doc["device_id"]    = DEVICE_ID;
+  doc["zone_id"]      = ZONE_ID;
+  doc["event"]        = eventType;
+  doc["duration_sec"] = durationSec;
+  doc["distance_cm"]  = distanceCm;
+  doc["timestamp"]    = (long)time(nullptr);
+
+  String payload;
+  serializeJson(doc, payload);
+  Serial.print("Sending payload: ");
+  Serial.println(payload);
+  
+  int httpResponseCode = http.POST(payload);
+  Serial.print("HTTP Response code: ");
+  Serial.println(httpResponseCode);
+  http.end();
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(TRIG_PIN, OUTPUT); pinMode(ECHO_PIN, INPUT);
+  pinMode(LED_RED, OUTPUT); pinMode(LED_GREEN, OUTPUT); pinMode(LED_YELLOW, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nConnected!");
+  configTime(5 * 3600 + 1800, 0, "pool.ntp.org"); // IST offset
+
+  setLed(0, 1, 0); // start green / vacant
+}
+
+void loop() {
+  float distance = readDistanceCm();
+  bool occupiedNow = (distance > 0 && distance < OCCUPIED_DISTANCE_CM);
+
+  if (occupiedNow) { belowCount++; aboveCount = 0; }
+  else              { aboveCount++; belowCount = 0; }
+
+  switch (currentState) {
+    case VACANT:
+      if (belowCount >= DEBOUNCE_READINGS) {
+        currentState = OCCUPIED;
+        occupiedSince = millis();
+        setLed(0, 0, 1);
+        Serial.println("State -> OCCUPIED");
+        sendEvent("OCCUPANCY_START", 0, distance);
+      }
+      break;
+
+    case OCCUPIED: {
+      unsigned long elapsed = millis() - occupiedSince;
+      if (aboveCount >= DEBOUNCE_READINGS) {
+        currentState = VACANT;
+        setLed(0, 1, 0);
+        Serial.println("State -> VACANT");
+        sendEvent("VACATED", elapsed / 1000, distance);
+      } else if (elapsed > VIOLATION_THRESHOLD_MS) {
+        currentState = VIOLATION;
+        setLed(1, 0, 0);
+        digitalWrite(BUZZER_PIN, HIGH);
+        Serial.println("State -> VIOLATION");
+        sendEvent("VIOLATION_CONFIRMED", elapsed / 1000, distance);
+      }
+      break;
+    }
+
+    case VIOLATION: {
+      unsigned long elapsed = millis() - occupiedSince;
+      if (aboveCount >= DEBOUNCE_READINGS) {
+        currentState = VACANT;
+        setLed(0, 1, 0);
+        digitalWrite(BUZZER_PIN, LOW);
+        Serial.println("State -> VACANT");
+        sendEvent("VACATED", elapsed / 1000, distance);
+      } else {
+        static unsigned long lastHeartbeat = 0;
+        if (millis() - lastHeartbeat > 30000) {
+          sendEvent("VIOLATION_ONGOING", elapsed / 1000, distance);
+          lastHeartbeat = millis();
+        }
+      }
+      break;
+    }
+  }
+
+  // Send a continuous telemetry ping every 2 seconds so the dashboard looks very active
+  static unsigned long lastTelemetry = 0;
+  if (millis() - lastTelemetry > 2000) {
+    sendEvent("TELEMETRY_UPDATE", 0, distance);
+    lastTelemetry = millis();
+  }
+
+  delay(200); // ~5 readings/sec
+}
