@@ -613,13 +613,28 @@ elif page == "🎥 City-Wide CCTV Network":
             st.warning("Backend not reachable. Start `python src/backend_api.py`")
             return
 
-        # ── KPIs ──────────────────────────────────────────────────────────────
+        # ── KPIs — LIVE (90-second rolling window) ────────────────────────────
+        all_time = stats.get("all_time_violations", 0)
+        live_v   = stats.get("total_violations", 0)
+        live_h   = stats.get("high_priority", 0)
+        live_m   = stats.get("medium_priority", 0)
+        live_a   = stats.get("active_vehicles", 0)
+
+        st.markdown(
+            "<p style='font-size:0.75rem;color:#888;margin-bottom:4px;'>"
+            "🔴 <b>LIVE</b> — Rolling 90-second window. "
+            f"All-time total violations: <b>{all_time}</b></p>",
+            unsafe_allow_html=True
+        )
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("🚨 Total Violations",  stats.get("total_violations", 0))
-        c2.metric("🔴 High Priority",     stats.get("high_priority", 0))
-        c3.metric("🚗 Active Vehicles",   stats.get("active_vehicles", 0))
-        medium = stats.get("total_violations", 0) - stats.get("high_priority", 0)
-        c4.metric("🟠 Medium Priority",   max(medium, 0))
+        c1.metric("🚨 Live Violations",  live_v,  delta="active now" if live_v > 0 else "clear",
+                  delta_color="inverse" if live_v > 0 else "off")
+        c2.metric("🔴 High Priority",    live_h,  delta="tow needed" if live_h > 0 else "none",
+                  delta_color="inverse" if live_h > 0 else "off")
+        c3.metric("🚗 Active Vehicles",  live_a,  delta="in zones" if live_a > 0 else "clear",
+                  delta_color="inverse" if live_a > 0 else "off")
+        c4.metric("🟠 Medium Priority",  live_m,  delta="dispatch" if live_m > 0 else "none",
+                  delta_color="inverse" if live_m > 0 else "off")
 
         st.markdown("---")
         col1, col2 = st.columns([2, 1])
