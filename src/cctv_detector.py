@@ -79,12 +79,12 @@ ROAD_CONFIG = {
     "CCTV-CAM-02": {
         "zones": {
             "Zone-1": {
-                "road_width_px": 1652,
-                "polygon": np.array([[528, 118], [850, 123], [653, 589], [112, 469]], dtype=np.int32)
+                "road_width_px": 908,
+                "polygon": np.array([[189, 737], [675, 767], [754, 406], [427, 473]], dtype=np.int32)
             },
             "Zone-2": {
-                "road_width_px": 1652,
-                "polygon": np.array([[1169, 71], [1442, 67], [1822, 467], [1284, 493]], dtype=np.int32)
+                "road_width_px": 908,
+                "polygon": np.array([[1000, 348], [1273, 391], [1677, 747], [1211, 819]], dtype=np.int32)
             },
         }
     },
