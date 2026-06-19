@@ -117,30 +117,49 @@ def get_recent_cctv_events(limit: int = 50):
 
 @app.get("/api/cctv-events/stats")
 def get_cctv_stats():
-    """Aggregated violation stats for the dashboard."""
+    """Aggregated violation stats for the dashboard — LIVE only (last 90s, non-vacated tracks)."""
     conn = sqlite3.connect(DB_FILE)
     stats = {}
-    stats["total_violations"] = conn.execute(
+
+    LIVE_WINDOW = 20  # seconds — telemetry fires every 3s, so 20s is plenty for active tracks
+
+    # All tracks seen in the window that have NOT sent a VACATED as their latest event
+    live_rows = conn.execute(
+        """
+        SELECT track_id,
+               MAX(timestamp) as last_ts,
+               MAX(CASE WHEN event='VACATED' THEN timestamp ELSE 0 END) as vacated_ts,
+               MAX(CASE WHEN event='VIOLATION_CONFIRMED' THEN 1 ELSE 0 END) as had_violation,
+               MAX(CASE WHEN event='VIOLATION_CONFIRMED' THEN priority ELSE NULL END) as viol_priority,
+               MAX(CASE WHEN event='VIOLATION_CONFIRMED' THEN zone_id ELSE NULL END) as viol_zone
+        FROM cctv_events
+        WHERE timestamp > strftime('%s','now') - ?
+        GROUP BY track_id
+        HAVING last_ts > vacated_ts
+        """,
+        (LIVE_WINDOW,)
+    ).fetchall()
+
+    active_vehicles = len(live_rows)
+    live_violations = sum(1 for r in live_rows if r[3] == 1)
+    live_high       = sum(1 for r in live_rows if r[4] == "HIGH")
+    live_medium     = sum(1 for r in live_rows if r[4] == "MEDIUM")
+
+    stats["active_vehicles"]  = active_vehicles
+    stats["total_violations"] = live_violations
+    stats["high_priority"]    = live_high
+    stats["medium_priority"]  = live_medium
+
+    # By-zone live count
+    zone_counts = {}
+    for r in live_rows:
+        if r[3] == 1 and r[5]:   # had_violation and has a zone
+            zone_counts[r[5]] = zone_counts.get(r[5], 0) + 1
+    stats["by_zone"] = [{"zone_id": z, "count": c} for z, c in sorted(zone_counts.items(), key=lambda x: -x[1])]
+
+    # All-time historical totals kept for trend/reference
+    stats["all_time_violations"] = conn.execute(
         "SELECT COUNT(*) FROM cctv_events WHERE event='VIOLATION_CONFIRMED'"
-    ).fetchone()[0]
-    # A vehicle is truly "active" only if its MOST RECENT event in the last 60s
-    # is NOT a VACATED event (i.e., it hasn't left the zone).
-    stats["active_vehicles"] = conn.execute(
-        """SELECT COUNT(*) FROM (
-               SELECT track_id,
-                      MAX(timestamp) as last_ts,
-                      MAX(CASE WHEN event='VACATED' THEN timestamp ELSE 0 END) as vacated_ts
-               FROM cctv_events
-               WHERE timestamp > strftime('%s','now') - 60
-               GROUP BY track_id
-               HAVING last_ts > vacated_ts
-           )"""
-    ).fetchone()[0]
-    stats["high_priority"] = conn.execute(
-        "SELECT COUNT(*) FROM cctv_events WHERE priority='HIGH' AND event='VIOLATION_CONFIRMED'"
-    ).fetchone()[0]
-    stats["medium_priority"] = conn.execute(
-        "SELECT COUNT(*) FROM cctv_events WHERE priority='MEDIUM' AND event='VIOLATION_CONFIRMED'"
     ).fetchone()[0]
     avg_cis_row = conn.execute(
         "SELECT AVG(cis) FROM cctv_events WHERE event='VIOLATION_CONFIRMED'"
@@ -155,13 +174,10 @@ def get_cctv_stats():
         "SELECT AVG(duration_sec) FROM cctv_events WHERE event='VIOLATION_CONFIRMED'"
     ).fetchone()[0]
     stats["avg_duration_sec"] = int(avg_dur_row) if avg_dur_row else 0
-    by_zone = conn.execute(
-        "SELECT zone_id, COUNT(*) as cnt FROM cctv_events "
-        "WHERE event='VIOLATION_CONFIRMED' GROUP BY zone_id ORDER BY cnt DESC"
-    ).fetchall()
-    stats["by_zone"] = [{"zone_id": r[0], "count": r[1]} for r in by_zone]
+
     conn.close()
     return stats
+
 
 
 @app.get("/api/cctv-events/high-risk")
