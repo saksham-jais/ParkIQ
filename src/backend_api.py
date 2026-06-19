@@ -233,23 +233,41 @@ _BLANK_JPEG = (
 )
 
 
+def get_offline_jpeg():
+    import cv2, numpy as np
+    img = np.zeros((360, 640, 3), dtype=np.uint8)
+    img[:] = (17, 17, 17)  # #111 hex
+    cv2.putText(img, "Camera Offline / Not Available", (110, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (136, 136, 136), 2, cv2.LINE_AA)
+    ret, jpeg = cv2.imencode('.jpg', img)
+    return jpeg.tobytes()
+
+_OFFLINE_JPEG = get_offline_jpeg()
+
 def generate_mjpeg_frames(cam_id: str):
-    """Yield MJPEG frames. Keeps last good frame in memory so the
-    stream never dies when the detector is slow or restarting."""
-    last_frame = _BLANK_JPEG
+    """Yield MJPEG frames indefinitely. If the camera drops, yield an offline image."""
     frame_path = f"data/current_frame_{cam_id}.jpg"
     while True:
         try:
+            if not os.path.exists(frame_path) or (time.time() - os.path.getmtime(frame_path) > 5):
+                # Camera is offline, stream the offline placeholder
+                yield (
+                    b'--frame\r\n'
+                    b'Content-Type: image/jpeg\r\n\r\n' + _OFFLINE_JPEG + b'\r\n'
+                )
+                time.sleep(1.0) # Check less frequently if offline
+                continue
+
             with open(frame_path, "rb") as f:
                 data = f.read()
-            if data:          # only update if we got real bytes
-                last_frame = data
+            
+            if data:
+                yield (
+                    b'--frame\r\n'
+                    b'Content-Type: image/jpeg\r\n\r\n' + data + b'\r\n'
+                )
         except Exception:
-            pass              # keep streaming the previous frame
-        yield (
-            b'--frame\r\n'
-            b'Content-Type: image/jpeg\r\n\r\n' + last_frame + b'\r\n'
-        )
+            pass
+            
         time.sleep(0.05)     # ~20 FPS cap
 
 @app.get("/api/video_feed")

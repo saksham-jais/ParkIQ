@@ -566,6 +566,32 @@ elif page == "🎥 City-Wide CCTV Network":
     """, unsafe_allow_html=True)
 
     st.markdown("---")
+    
+    st.markdown("### 🎛️ Upload Custom Video for Detection")
+    uploaded_file = st.file_uploader("Upload a traffic video (.mp4) to run the AI detector", type=["mp4", "avi", "mov"])
+    if uploaded_file is not None:
+        import os
+        os.makedirs("data", exist_ok=True)
+        video_path = f"data/uploaded_video.mp4"
+        with open(video_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        
+        st.success(f"Video uploaded successfully!")
+        
+        bc1, bc2 = st.columns(2)
+        with bc1:
+            if st.button("🛠️ 1. Calibrate Zones", use_container_width=True):
+                import subprocess
+                subprocess.Popen(["python", "src/cctv_detector.py", "--source", video_path, "--calibrate"])
+                st.info("Check your taskbar! A calibration window has opened. Click your zones and press ENTER. Your zones will be auto-saved!")
+        with bc2:
+            if st.button("🚀 2. Start Live Detection", type="primary", use_container_width=True):
+                import subprocess
+                # Run headless detector
+                subprocess.Popen(["python", "src/cctv_detector.py", "--source", video_path])
+                st.success("Detector started! Scroll down to see the Live Feed and Telemetry.")
+
+    st.markdown("---")
 
     st.markdown("### 📷 Live CCTV Feed")
     # MJPEG img tag is OUTSIDE any fragment — the browser holds ONE persistent
@@ -576,11 +602,16 @@ elif page == "🎥 City-Wide CCTV Network":
         st.markdown(
             """
             <div style="border:2px solid #444;border-radius:10px;overflow:hidden;
-                        background:#000;line-height:0;">
+                        background:#111;line-height:0;position:relative;min-height:250px;">
+              <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:#888;">
+                 <h3 style="margin:0;">🚫</h3>
+                 <p style="margin:5px 0 0 0;">Camera Offline / Not Available</p>
+              </div>
               <img id="feed-cam1"
                    src="http://127.0.0.1:8000/api/video_feed?cam_id=CCTV-CAM-01"
-                   style="width:100%;display:block;"
-                   onerror="setTimeout(()=>{ this.src='http://127.0.0.1:8000/api/video_feed?cam_id=CCTV-CAM-01&t='+Date.now() },2000)">
+                   style="width:100%;display:block;position:relative;z-index:10;"
+                   onload="this.style.display='block'"
+                   onerror="this.style.display='none'; let img=this; setTimeout(()=>{ img.src='http://127.0.0.1:8000/api/video_feed?cam_id=CCTV-CAM-01&t='+Date.now() },2000)">
             </div>
             """, unsafe_allow_html=True
         )
@@ -589,11 +620,16 @@ elif page == "🎥 City-Wide CCTV Network":
         st.markdown(
             """
             <div style="border:2px solid #444;border-radius:10px;overflow:hidden;
-                        background:#000;line-height:0;">
+                        background:#111;line-height:0;position:relative;min-height:250px;">
+              <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:#888;">
+                 <h3 style="margin:0;">🚫</h3>
+                 <p style="margin:5px 0 0 0;">Camera Offline / Not Available</p>
+              </div>
               <img id="feed-cam2"
                    src="http://127.0.0.1:8000/api/video_feed?cam_id=CCTV-CAM-02"
-                   style="width:100%;display:block;"
-                   onerror="setTimeout(()=>{ this.src='http://127.0.0.1:8000/api/video_feed?cam_id=CCTV-CAM-02&t='+Date.now() },2000)">
+                   style="width:100%;display:block;position:relative;z-index:10;"
+                   onload="this.style.display='block'"
+                   onerror="this.style.display='none'; let img=this; setTimeout(()=>{ img.src='http://127.0.0.1:8000/api/video_feed?cam_id=CCTV-CAM-02&t='+Date.now() },2000)">
             </div>
             """, unsafe_allow_html=True
         )

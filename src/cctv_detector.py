@@ -46,13 +46,14 @@ PHONE_CAMERA_1_URL = "http://192.168.29.247:8080/video"   # ← CAM 1 IP
 PHONE_CAMERA_2_URL = "http://192.168.29.41:8080/video"   # ← CAM 2 IP
 
 MODEL_WEIGHTS    = "yolov8n.pt"          # auto-downloads on first run (~6MB)
-CONF_THRESHOLD   = 0.35                  # slightly lower threshold for toy vehicles
+CONF_THRESHOLD   = 0.15                  # lowered to catch blurry bikes/scooters
 VIOLATION_SEC    = 8                     # 8 seconds for demo (toy car stays still)
 TELEMETRY_SEC    = 3                     # POST telemetry every 3 seconds
 FRAME_SKIP       = 2                     # process every Nth frame (speed vs accuracy)
 
 # COCO class IDs that are vehicles
 VEHICLE_CLASSES  = {
+    1:  "bicycle",
     2:  "car",
     3:  "motorcycle",
     5:  "bus",
@@ -67,16 +68,13 @@ ROAD_CONFIG = {
     "CCTV-CAM-01": {
         "zones": {
             "Zone-1": {
-                "road_width_px": 1598,
-                "polygon": np.array([[526, 98], [844, 86], [691, 666], [122, 542]], dtype=np.int32)
-            },
-            "Zone-2": {
-                "road_width_px": 1598,
-                "polygon": np.array([[1161, 63], [1438, 44], [1876, 524], [1328, 600]], dtype=np.int32)
+                "road_width_px": 748,
+                "polygon": np.array([[1179, 174], [1050, 171], [1291, 562], [1560, 489]], dtype=np.int32)      
             },
         }
     },
     "CCTV-CAM-02": {
+        "type": "school",      # e.g., School / Residential area
         "zones": {
             "Zone-1": {
                 "road_width_px": 908,
@@ -89,6 +87,25 @@ ROAD_CONFIG = {
         }
     },
 }
+# ── Override with user calibration if exists ──
+import os, json
+if os.path.exists("data/calibration.json"):
+    try:
+        with open("data/calibration.json", "r") as f:
+            calib = json.load(f)
+            for cam, data in calib.items():
+                if cam not in ROAD_CONFIG:
+                    ROAD_CONFIG[cam] = {"zones": {}}
+                else:
+                    ROAD_CONFIG[cam]["zones"] = {}
+                for z_id, z_data in data.get("zones", {}).items():
+                    ROAD_CONFIG[cam]["zones"][z_id] = {
+                        "road_width_px": z_data["road_width_px"],
+                        "polygon": np.array(z_data["polygon"], dtype=np.int32)
+                    }
+    except Exception as e:
+        print(f"[WARN] Failed to load calibration.json: {e}")
+
 # Keep backward-compat alias
 NO_PARKING_ZONES = {}
 for cam, cfg in ROAD_CONFIG.items():
@@ -129,24 +146,34 @@ def trigger_buzzer_alert(zone_id: str, priority: str):
     except Exception:
         pass
 
-def update_hardware_leds(active_track_ids, track_entry_time, track_vehicle_type, track_zone, track_violation_sent):
+def update_hardware_leds(active_track_ids, track_entry_time, track_vehicle_type, track_zone, track_violation_sent, ghost_tracks=None):
     """Evaluate all current active violations and update the ESP32 LEDs to the highest priority, or VACANT if none."""
     import requests
     highest_priority = "VACANT"
+    if ghost_tracks is None: ghost_tracks = {}
     
     # If there are any violating tracks, calculate the highest priority among them
     if track_violation_sent:
         import time
         now = time.time()
         for tid in track_violation_sent:
+            p = "LOW"
             if tid in active_track_ids and tid in track_entry_time:
                 vt = track_vehicle_type.get(tid, "vehicle")
                 dwell_sec = now - track_entry_time[tid]
                 cis = compute_cis(vt, dwell_sec, track_zone[tid])
                 p = priority_label(cis)
-                if p == "CRITICAL": highest_priority = "CRITICAL"
-                elif p == "HIGH" and highest_priority != "CRITICAL": highest_priority = "HIGH"
-                elif p == "MEDIUM" and highest_priority not in ["CRITICAL", "HIGH"]: highest_priority = "MEDIUM"
+            elif tid in ghost_tracks:
+                vt = ghost_tracks[tid]["vtype"]
+                dwell_sec = now - ghost_tracks[tid]["entry_time"]
+                cis = compute_cis(vt, dwell_sec, ghost_tracks[tid]["zone_id"])
+                p = priority_label(cis)
+            else:
+                continue
+
+            if p == "CRITICAL": highest_priority = "CRITICAL"
+            elif p == "HIGH" and highest_priority != "CRITICAL": highest_priority = "HIGH"
+            elif p == "MEDIUM" and highest_priority not in ["CRITICAL", "HIGH"]: highest_priority = "MEDIUM"
                 
     try:
         r = requests.post(SET_BUZZER_URL, json={"active": highest_priority == "CRITICAL", "zone_id": "", "level": highest_priority}, timeout=2.0)
@@ -185,14 +212,23 @@ def compute_cis(vehicle_type: str, dwell_seconds: float, zone_id: str,
     blockage_ratio = min(bbox_width / max(road_width, 1), 1.0)
     lane_penalty = int(blockage_ratio * 20)  # max +20 pts
 
-    # 4. Time-of-day multiplier (rush hour amplifies impact)
-    if current_hour in [8, 9, 10, 17, 19]:
-        time_multiplier = 1.3   # Rush hour
-    elif current_hour >= 22 or current_hour <= 6:
-        time_multiplier = 0.5   # Night — low traffic impact
-    else:
-        time_multiplier = 1.0   # Normal daytime
+    # 4. Time-of-day multiplier (location-aware rush hour amplifies impact)
+    cam_type = cam_cfg.get("type", "commercial")
+    time_multiplier = 1.0   # Normal daytime default
 
+    if cam_type == "commercial":
+        # IT Parks / Offices: 8-10 AM, 5-8 PM
+        if current_hour in [8, 9, 10, 17, 18, 19]:
+            time_multiplier = 1.3
+        elif current_hour >= 22 or current_hour <= 6:
+            time_multiplier = 0.5
+    elif cam_type == "school":
+        # Schools: 7-9 AM, 2-4 PM
+        if current_hour in [7, 8, 14, 15]:
+            time_multiplier = 1.4
+        elif current_hour >= 18 or current_hour <= 6:
+            time_multiplier = 0.4
+            
     final_cis = int((base + zone_penalty + lane_penalty) * time_multiplier)
     return min(final_cis, 100)
 
@@ -308,17 +344,20 @@ def run(source=0, show=True):
     track_type_votes     = defaultdict(lambda: defaultdict(int))  # track_id → {type: count}
     track_type_locked    = set()  # track_ids whose type is locked and won't flip
     track_violation_sent = set()  # track_ids for which VIOLATION was already sent
+    track_occupancy_sent = set()  # track_ids for which OCCUPANCY_START was sent
     last_telemetry       = defaultdict(float)  # track_id → last telemetry time
     pending_exit         = defaultdict(int)    # track_id → consecutive out-of-zone frame count
 
-    EXIT_GRACE_FRAMES = 4   # must be outside zone for this many frames to confirm exit
+    EXIT_GRACE_FRAMES = 30  # must be outside zone for this many frames to confirm exit (prevents jitter resets)
+    STATIONARY_SEC    = 5.0 # ignore passing cars until they dwell for this long
 
     # Ghost-track resurrection: when tracker drops a stationary car for a frame
     # and re-detects it with a NEW id, we match by position and inherit state.
-    ghost_tracks         = {}   # track_id → {cx, cy, zone_id, entry_time, violation_sent, vtype, locked}
+    ghost_tracks         = {}   # track_id → {cx, cy, box, zone_id, entry_time, violation_sent, vtype, locked}
     track_last_pos       = {}   # track_id → (cx, cy) — updated every frame for ghost position
-    GHOST_TTL            = 2.0  # seconds to keep ghost before truly considering it gone
-    GHOST_DIST_PX        = 150  # max centroid distance to match a ghost (wider net for stationary cars)
+    track_last_box       = {}   # track_id → [x1, y1, x2, y2]
+    GHOST_TTL            = 6.0  # seconds to keep ghost before truly considering it gone (handles long occlusions)
+    GHOST_DIST_PX        = 300  # max centroid distance to match a ghost (handles large centroid shifts for buses)
 
     VOTE_WINDOW  = 10   # keep last N votes per track
     LOCK_VOTES   = 6    # need this many votes for one class to lock
@@ -370,7 +409,7 @@ def run(source=0, show=True):
                 a2 = (b2[2]-b2[0]) * (b2[3]-b2[1])
                 return inter / (a1 + a2 - inter + 1e-6)
 
-            CROSS_NMS_IOU = 0.45
+            CROSS_NMS_IOU = 0.85
             order = confs.argsort()[::-1]   # highest confidence first
             keep  = []
             suppressed = set()
@@ -391,19 +430,45 @@ def run(source=0, show=True):
 
             # ── Ghost-track resurrection pass ────────────────────────────────
             # For every brand-new track_id, check if it's near a ghost.
-            for box, track_id in zip(boxes, track_ids):
+            for box, track_id, cls_id in zip(boxes, track_ids, classes):
                 if track_id in track_entry_time:
                     continue  # already a known track
-                x1, y1, x2, y2 = box
-                cx, cy = bbox_center(x1, y1, x2, y2)
-                best_ghost_id, best_dist = None, GHOST_DIST_PX
-                for g_id, g in list(ghost_tracks.items()):
-                    if now - g["ts"] > GHOST_TTL:
-                        del ghost_tracks[g_id]
-                        continue
-                    dist = ((cx - g["cx"])**2 + (cy - g["cy"])**2) ** 0.5
-                    if dist < best_dist:
-                        best_dist, best_ghost_id = dist, g_id
+                
+                best_ghost_id, best_score = None, -1
+                
+                # Trust YOLO: if YOLO kept the same ID and we have it as a ghost, use it instantly!
+                if track_id in ghost_tracks:
+                    best_ghost_id = track_id
+                else:
+                    x1, y1, x2, y2 = box
+                    cx, cy = bbox_center(x1, y1, x2, y2)
+                    raw_type = VEHICLE_CLASSES.get(cls_id, "vehicle")
+                    
+                    for g_id, g in list(ghost_tracks.items()):
+                        if now - g["ts"] > GHOST_TTL:
+                            del ghost_tracks[g_id]
+                            continue
+                            
+                        # Prevent a car from stealing a locked bus's ghost
+                        if g["locked"] and g["vtype"] != raw_type:
+                            continue
+                            
+                        dist = ((cx - g["cx"])**2 + (cy - g["cy"])**2) ** 0.5
+                        if dist > GHOST_DIST_PX:
+                            continue
+                            
+                        # Score matches using IoU + proximity
+                        giou = box_iou(box, g["box"])
+                        score = (giou * 500) + (GHOST_DIST_PX - dist)
+                        
+                        # STRICT MATCHING: If bounding boxes don't overlap by at least 20%, 
+                        # it's a completely different vehicle. Do NOT let it steal the ghost!
+                        if giou < 0.2:
+                            continue
+                            
+                        if score > best_score:
+                            best_score, best_ghost_id = score, g_id
+                        
                 if best_ghost_id is not None:
                     g = ghost_tracks.pop(best_ghost_id)
                     # Inherit everything from the ghost
@@ -414,8 +479,10 @@ def run(source=0, show=True):
                         track_type_locked.add(track_id)
                     if g["violation_sent"]:
                         track_violation_sent.add(track_id)
+                    if g.get("occupancy_sent", False):
+                        track_occupancy_sent.add(track_id)
                     pending_exit[track_id] = 0   # clear any pending exit for the resurrected track
-                    print(f"[GHOST] Track#{best_ghost_id} → #{track_id} resurrected (dist={best_dist:.0f}px, dwell={now-g['entry_time']:.1f}s)")
+                    print(f"[GHOST] Track#{best_ghost_id} → #{track_id} resurrected (score={best_score:.0f}, dwell={now-g['entry_time']:.1f}s)")
 
 
             for box, track_id, cls_id in zip(boxes, track_ids, classes):
@@ -453,6 +520,7 @@ def run(source=0, show=True):
                 active_track_ids.add(track_id)
                 track_vehicle_type[track_id] = vehicle_type
                 track_last_pos[track_id] = (cx, cy)   # always update last known position
+                track_last_box[track_id] = box        # save bounding box for IoU matching
 
                 if zone_id:
                     pending_exit[track_id] = 0   # car is in zone — reset any pending exit
@@ -462,49 +530,75 @@ def run(source=0, show=True):
                         track_entry_time[track_id] = now
                         track_zone[track_id] = zone_id
                         track_violation_sent.discard(track_id)
-                        send_event(track_id, vehicle_type, zone_id, "OCCUPANCY_START", 0, 0, "LOW")
+                        track_occupancy_sent.discard(track_id)
 
                     dwell_sec = now - track_entry_time[track_id]
-                    # Pass bbox width and frame width for lane blockage calculation
-                    frame_w = frame.shape[1]
-                    cis = compute_cis(vehicle_type, dwell_sec, zone_id,
-                                      bbox_width=(x2 - x1), frame_width=frame_w)
-                    priority = priority_label(cis)
+                    
+                    if dwell_sec >= STATIONARY_SEC:
+                        if track_id not in track_occupancy_sent:
+                            track_occupancy_sent.add(track_id)
+                            send_event(track_id, vehicle_type, zone_id, "OCCUPANCY_START", dwell_sec, 0, "LOW")
 
-                    # Violation threshold crossed
-                    if dwell_sec >= VIOLATION_SEC and track_id not in track_violation_sent:
-                        track_violation_sent.add(track_id)
-                        send_event(track_id, vehicle_type, zone_id,
-                                   "VIOLATION_CONFIRMED", dwell_sec, cis, priority)
-                        trigger_buzzer_alert(zone_id, priority)
+                        # Pass bbox width and frame width for lane blockage calculation
+                        frame_w = frame.shape[1]
+                        cis = compute_cis(vehicle_type, dwell_sec, zone_id,
+                                          bbox_width=(x2 - x1), frame_width=frame_w)
+                        priority = priority_label(cis)
 
-                    # Periodic telemetry
-                    if now - last_telemetry[track_id] > TELEMETRY_SEC:
-                        send_event(track_id, vehicle_type, zone_id,
-                                   "TELEMETRY_UPDATE", dwell_sec, cis, priority)
-                        last_telemetry[track_id] = now
+                        # Violation threshold crossed
+                        if dwell_sec >= VIOLATION_SEC and track_id not in track_violation_sent:
+                            track_violation_sent.add(track_id)
+                            send_event(track_id, vehicle_type, zone_id,
+                                       "VIOLATION_CONFIRMED", dwell_sec, cis, priority)
+                            update_hardware_leds(active_track_ids, track_entry_time, track_vehicle_type, track_zone, track_violation_sent, ghost_tracks)
 
-                    if show:
-                        colour = COLOUR_MAP[priority]
-                        label = f"#{track_id} {vehicle_type} | {zone_id} | CIS:{cis} [{priority}] {int(dwell_sec)}s"
-                        draw_vehicle(frame, x1, y1, x2, y2, label, colour)
+                        # Periodic telemetry
+                        if now - last_telemetry[track_id] > TELEMETRY_SEC:
+                            send_event(track_id, vehicle_type, zone_id,
+                                       "TELEMETRY_UPDATE", dwell_sec, cis, priority)
+                            last_telemetry[track_id] = now
+
+                        if show:
+                            colour = COLOUR_MAP[priority]
+                            label = f"#{track_id} {vehicle_type} | {zone_id} | CIS:{cis} [{priority}] {int(dwell_sec)}s"
+                            draw_vehicle(frame, x1, y1, x2, y2, label, colour)
+                    else:
+                        if show:
+                            label = f"#{track_id} {vehicle_type}"
+                            draw_vehicle(frame, x1, y1, x2, y2, label, (180, 180, 180))
                 else:
                     if track_id in track_zone:
                         # Increment grace counter — must be out of zone for EXIT_GRACE_FRAMES
                         pending_exit[track_id] += 1
                         if pending_exit[track_id] >= EXIT_GRACE_FRAMES:
-                            # Confirmed exit — fire VACATED
-                            dwell_sec = now - track_entry_time.get(track_id, now)
-                            cis = compute_cis(vehicle_type, dwell_sec, track_zone[track_id])
-                            send_event(track_id, vehicle_type, track_zone[track_id],
-                                       "VACATED", dwell_sec, cis, priority_label(cis))
-                            
-                            track_violation_sent.discard(track_id)
-                            update_hardware_leds(active_track_ids, track_entry_time, track_vehicle_type, track_zone, track_violation_sent)
-                            
+                            if track_id in track_occupancy_sent:
+                                dwell_sec = now - track_entry_time.get(track_id, now)
+                                cis = compute_cis(vehicle_type, dwell_sec, track_zone[track_id])
+                                send_event(track_id, vehicle_type, track_zone[track_id],
+                                           "VACATED", dwell_sec, cis, priority_label(cis))
+                                
+                                track_violation_sent.discard(track_id)
+                                update_hardware_leds(active_track_ids, track_entry_time, track_vehicle_type, track_zone, track_violation_sent, ghost_tracks)
+                                
+                            track_occupancy_sent.discard(track_id)
                             del track_zone[track_id]
                             del track_entry_time[track_id]
                             pending_exit[track_id] = 0
+                        else:
+                            # Still in grace period. Maintain its visual violation state!
+                            if show:
+                                dwell_sec = now - track_entry_time[track_id]
+                                if dwell_sec >= STATIONARY_SEC:
+                                    frame_w = frame.shape[1]
+                                    cis = compute_cis(vehicle_type, dwell_sec, track_zone[track_id], bbox_width=(x2 - x1), frame_width=frame_w)
+                                    priority = priority_label(cis)
+                                    colour = COLOUR_MAP[priority]
+                                    label = f"#{track_id} {vehicle_type} | {track_zone[track_id]} | CIS:{cis} [{priority}] {int(dwell_sec)}s"
+                                    draw_vehicle(frame, x1, y1, x2, y2, label, colour)
+                                else:
+                                    label = f"#{track_id} {vehicle_type}"
+                                    draw_vehicle(frame, x1, y1, x2, y2, label, (180, 180, 180))
+                            continue # skip drawing the default grey box below
 
                     if show:
                         label = f"#{track_id} {vehicle_type}"
@@ -526,9 +620,11 @@ def run(source=0, show=True):
                 ghost_tracks[tid] = {
                     "cx":            lx,
                     "cy":            ly,
+                    "box":           track_last_box.get(tid, [0,0,0,0]),
                     "zone_id":       track_zone[tid],
                     "entry_time":    track_entry_time[tid],
                     "violation_sent": tid in track_violation_sent,
+                    "occupancy_sent": tid in track_occupancy_sent,
                     "vtype":         vt,
                     "locked":        tid in track_type_locked,
                     "ts":            now,
@@ -542,13 +638,16 @@ def run(source=0, show=True):
             g = ghost_tracks[g_id]
             if now - g["ts"] > GHOST_TTL:
                 dwell_sec = now - g["entry_time"]
-                cis = compute_cis(g["vtype"], dwell_sec, g["zone_id"])
-                send_event(g_id, g["vtype"], g["zone_id"], "VACATED",
-                           dwell_sec, cis, priority_label(cis))
+                if g.get("occupancy_sent", False):
+                    cis = compute_cis(g["vtype"], dwell_sec, g["zone_id"])
+                    send_event(g_id, g["vtype"], g["zone_id"], "VACATED",
+                               dwell_sec, cis, priority_label(cis))
                 track_violation_sent.discard(g_id)
-                update_hardware_leds(active_track_ids, track_entry_time, track_vehicle_type, track_zone, track_violation_sent)
+                track_occupancy_sent.discard(g_id)
+                update_hardware_leds(active_track_ids, track_entry_time, track_vehicle_type, track_zone, track_violation_sent, ghost_tracks)
                 del ghost_tracks[g_id]
-                print(f"[GHOST] Track#{g_id} expired after {dwell_sec:.1f}s — VACATED sent")
+                if g.get("occupancy_sent", False):
+                    print(f"[GHOST] Track#{g_id} expired after {dwell_sec:.1f}s — VACATED sent")
 
         if show:
             ts = datetime.datetime.now().strftime("%H:%M:%S")
@@ -601,7 +700,10 @@ if __name__ == "__main__":
         cap = cv2.VideoCapture(src)
         ret, frame = cap.read()
         cap.release()
-        if ret:
+        if not ret:
+            print(f"\n❌ ERROR: Could not open video source: '{src}'")
+            print("Please make sure the file exists and the path is correct!")
+        else:
             state   = {"phase": 1, "zones": [], "current_road_pts": [], "current_zone_pts": []}
             clone   = frame.copy()
 
@@ -660,16 +762,29 @@ if __name__ == "__main__":
 
             zones = state["zones"]
             if len(zones) > 0:
-                print(f"\n\u2705 Paste this into ROAD_CONFIG in cctv_detector.py:")
-                print(f'    "{DEVICE_ID}": {{')
-                print(f'        "zones": {{')
+                import json
+                print(f"\n✅ Saving calibration data for {DEVICE_ID} automatically...")
+                calib = {}
+                if os.path.exists("data/calibration.json"):
+                    try:
+                        with open("data/calibration.json", "r") as f:
+                            calib = json.load(f)
+                    except: pass
+                
+                if DEVICE_ID not in calib:
+                    calib[DEVICE_ID] = {"zones": {}}
+                
+                calib[DEVICE_ID]["zones"] = {}
                 for i, z in enumerate(zones):
-                    print(f'            "Zone-{i+1}": {{')
-                    print(f'                "road_width_px": {z["road_width_px"]},')
-                    print(f'                "polygon": np.array({z["polygon"]}, dtype=np.int32)')
-                    print(f'            }},')
-                print(f'        }}')
-                print(f'    }},')
+                    calib[DEVICE_ID]["zones"][f"Zone-{i+1}"] = {
+                        "road_width_px": int(z["road_width_px"]),
+                        "polygon": [list(int(p) for p in pt) for pt in z["polygon"]]
+                    }
+                
+                with open("data/calibration.json", "w") as f:
+                    json.dump(calib, f, indent=4)
+                    
+                print("✅ Successfully auto-updated calibration! You can now start the live detector.")
             else:
                 print("\n\u274c Error: No complete zones (road width + 4 points) were marked.")
     else:

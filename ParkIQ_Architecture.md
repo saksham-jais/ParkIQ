@@ -491,15 +491,17 @@ YOLOv8 Nano (vehicle detection, COCO classes: car/motorcycle/bus/truck)
     ↓
 ByteTrack multi-object tracker (persistent track IDs across frames)
     ↓
+Ghost-track Resurrection & Majority-vote type locking (eliminating ghost IDs and classification errors)
+    ↓
 Zone Checker (cv2.pointPolygonTest against NO_PARKING_ZONES polygons)
     ↓
 Dwell Timer (per track_id, seconds inside zone)
     ↓
-CIS Engine (base vehicle score + time penalty + zone bonus → 0-100)
+CIS Engine (base vehicle score + time-of-day multiplier + lane blockage ratio vs defined road width → 0-100)
     ↓
 FastAPI POST → /api/cctv-event → SQLite → Dashboard
     ↓
-ESP32 Buzzer trigger (via /api/set-buzzer) on VIOLATION_CONFIRMED
+Global Hardware State Evaluator (triggers ESP32 hardware via /api/set-buzzer, resets to VACANT when clear)
 ```
 
 **Key parameters (tunable in `cctv_detector.py`):**
@@ -539,7 +541,7 @@ python src/cctv_detector.py --calibrate
 
 ---
 
-## 12. Database Schema
+## 13. Database Schema
 
 For the hackathon, **SQLite is enough** — don't burn build time setting up Postgres/AWS unless you have spare days. The schema below works identically in both.
 
@@ -596,7 +598,7 @@ CREATE TABLE enforcement_actions (
 
 ---
 
-## 13. Dashboard (Frontend)
+## 14. Dashboard (Frontend)
 
 > **Status: ✅ Fully Implemented** (`src/dashboard.py`)
 
@@ -618,7 +620,7 @@ Streamlit's `@st.fragment(run_every=N)` decorator is used for the IoT and CCTV p
 
 ---
 
-## 14. High-Risk Area Analysis & AI Suggestions
+## 15. High-Risk Area Analysis & AI Suggestions
 
 > **Status: ✅ Implemented** — Page 2 of the dashboard
 
@@ -643,7 +645,7 @@ Each suggestion is colour-coded (red/orange/green) and labelled HIGH / MEDIUM / 
 
 ---
 
-## 14. Stretch Goals: Digital Twin & Emergency Lane Protection
+## 16. Stretch Goals: Digital Twin & Emergency Lane Protection
 
 Only attempt these once the core (Sections 6–13) is working end-to-end. They are differentiators, not requirements.
 
@@ -653,7 +655,7 @@ Only attempt these once the core (Sections 6–13) is working end-to-end. They a
 
 ---
 
-## 15. Tech Stack — Hackathon MVP vs. Production Vision
+## 17. Tech Stack — Hackathon MVP vs. Production Vision
 
 Be explicit in your pitch about which is which — judges respect a team that scoped realistically.
 
@@ -670,7 +672,7 @@ Be explicit in your pitch about which is which — judges respect a team that sc
 
 ---
 
-## 16. 4-Week Build Roadmap
+## 18. 4-Week Build Roadmap
 
 **Week 1 — Data foundation**
 Clean the dataset, build the feature engineering pipeline (Section 4), implement the CIS formula, run DBSCAN clustering, get a static map visualization working with real data.
@@ -686,7 +688,7 @@ Add the seasonal-average hotspot forecast (Section 8), build one stretch goal if
 
 ---
 
-## 17. Demo Script for Judges
+## 19. Demo Script for Judges
 
 A suggested 4-minute flow:
 
@@ -698,7 +700,7 @@ A suggested 4-minute flow:
 
 ---
 
-## 18. Evaluation Metrics
+## 20. Evaluation Metrics
 
 Since there's no ground-truth congestion measurement available, frame your evaluation honestly:
 
@@ -709,7 +711,7 @@ Since there's no ground-truth congestion measurement available, frame your evalu
 
 ---
 
-## 19. Risks & Honest Limitations
+## 21. Risks & Honest Limitations
 
 - **No real congestion ground truth in the dataset.** Mitigation: explainable heuristic CIS instead of an unverified supervised model (see Section 3).
 - **ESP32 WiFi dependency for the live demo.** Mitigation: test the venue's WiFi/hotspot beforehand; have a local-buffer fallback (log to serial/SD if WiFi drops) so the demo doesn't fail live.
@@ -718,7 +720,7 @@ Since there's no ground-truth congestion measurement available, frame your evalu
 
 ---
 
-## 20. Submission Checklist
+## 22. Submission Checklist
 
 - [x] Cleaned dataset + feature engineering script (`src/data_pipeline.py`)
 - [x] CIS scoring function, tested against sample rows
@@ -739,11 +741,10 @@ Since there's no ground-truth congestion measurement available, frame your evalu
 
 ---
 
-## 21. Future Scope
+## 23. Future Scope
 
 - Calibrate CIS weights against real traffic-speed data (e.g., correlating violation locations with road-segment average speed from a maps API) once available, then revisit supervised ML scoring.
 - Expand the IoT node fleet using LoRaWAN/NB-IoT for low-power, low-bandwidth city-wide coverage instead of WiFi-only nodes.
-- Integrate with live CCTV feeds via YOLOv8 for automatic violation logging, feeding directly into the CIS pipeline.
 - Build a true emergency-vehicle routing integration (not just a static route check) once a real routing API is available.
 - Move from SQLite/Folium to PostgreSQL+PostGIS/MapMyIndia for a production-scale deployment with Bengaluru Traffic Police.
 
