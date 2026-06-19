@@ -18,12 +18,22 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-page = st.sidebar.radio("Navigate", [
+PAGES = [
     "🧠 AI Predictive Impact Map",
     "⚠️ High-Risk Area Analysis",
     "📡 IoT Sensor Monitor",
     "🎥 City-Wide CCTV Network",
-])
+]
+
+default_index = 0
+if "page" in st.query_params:
+    query_page = st.query_params["page"]
+    if query_page in PAGES:
+        default_index = PAGES.index(query_page)
+
+page = st.sidebar.radio("Navigate", PAGES, index=default_index)
+
+st.query_params["page"] = page
 
 try:
     if page == "🎥 City-Wide CCTV Network":
@@ -484,12 +494,24 @@ elif page == "📡 IoT Sensor Monitor":
         violations   = pd.read_sql_query(
             "SELECT COUNT(*) as n FROM sensor_events WHERE event='VIOLATION_CONFIRMED'", conn
         ).iloc[0]["n"]
+        
+        # Calculate live nodes (events in the last 60 seconds)
+        live_nodes_df = pd.read_sql_query(
+            "SELECT DISTINCT device_id FROM sensor_events WHERE timestamp > strftime('%s','now') - 60", conn
+        )
+        live_nodes_count = len(live_nodes_df)
+        if live_nodes_count > 0:
+            active_nodes = ", ".join(live_nodes_df["device_id"].tolist())
+            delta_val = f"↑ {active_nodes}"
+        else:
+            delta_val = "↓ Offline"
+            
         conn.close()
 
         k1, k2, k3 = st.columns(3)
         k1.metric("Total IoT Events",   f"{int(total_events):,}")
         k2.metric("Violations Detected",f"{int(violations):,}")
-        k3.metric("Live Nodes",         "1", delta="ESP32-NODE-01")
+        k3.metric("Live Nodes",         f"{live_nodes_count}", delta=delta_val)
 
         st.markdown("---")
         if not events_df.empty:
