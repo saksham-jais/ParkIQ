@@ -32,7 +32,9 @@ from ultralytics import YOLO
 # ─────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────
-BASE_API_URL     = "http://127.0.0.1:8000"
+import platform
+IS_LOCAL = platform.system() == "Windows"
+BASE_API_URL = "http://127.0.0.1:8000" if IS_LOCAL else "https://parkiq-glrk.onrender.com"
 # These will be overridden by argparse if provided
 DEVICE_ID        = "CCTV-CAM-01"
 CAMERA_LOCATION  = "MG Road Junction, Bengaluru"
