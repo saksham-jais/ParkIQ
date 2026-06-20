@@ -906,7 +906,10 @@ async function sendPoints() {{
             def cam1_cloud_feed():
                 frame_path = "data/current_frame_CCTV-CAM-01.jpg"
                 if os.path.exists(frame_path):
-                    st.image(frame_path, use_container_width=True)
+                    try:
+                        st.image(frame_path, width="stretch")
+                    except OSError:
+                        pass  # File being written mid-frame, skip this tick
                 else:
                     st.html("""
 <div style="border:2px solid #444; border-radius:10px; background:#111; position:relative; height:290px; box-sizing:border-box; width:100%; display:flex; align-items:center; justify-content:center; flex-direction:column; color:#888; font-family:sans-serif;">
@@ -926,7 +929,10 @@ async function sendPoints() {{
             def cam2_cloud_feed():
                 frame_path = "data/current_frame_CCTV-CAM-02.jpg"
                 if os.path.exists(frame_path):
-                    st.image(frame_path, use_container_width=True)
+                    try:
+                        st.image(frame_path, width="stretch")
+                    except OSError:
+                        pass  # File being written mid-frame, skip this tick
                 else:
                     st.html("""
 <div style="border:2px solid #444; border-radius:10px; background:#111; position:relative; height:290px; box-sizing:border-box; width:100%; display:flex; align-items:center; justify-content:center; flex-direction:column; color:#888; font-family:sans-serif;">
