@@ -44,12 +44,6 @@ if "page" in st.query_params:
 page = st.sidebar.radio("Navigate", PAGES, index=default_index)
 
 if st.query_params.get("page") != page:
-    loader_placeholder = st.empty()
-    with loader_placeholder.container():
-        with st.spinner(f"Loading {page}..."):
-            import time
-            time.sleep(0.6)  # Forced delay to make loader visible
-    loader_placeholder.empty()
     st.query_params["page"] = page
 
 try:
@@ -498,32 +492,23 @@ elif page == "📡 IoT Sensor Monitor":
 
     @st.fragment(run_every=2)
     def auto_update_table():
-        if not os.path.exists(DB_PATH):
-            st.warning("Database not found. Make sure the backend API has been run at least once.")
+        try:
+            stats = requests.get(f"{API_BASE}/api/sensor-events/stats", timeout=2).json()
+            events = requests.get(f"{API_BASE}/api/sensor-events/recent?limit=50", timeout=2).json()
+        except Exception:
+            st.warning("Backend API is unreachable. Please run python src/backend_api.py locally or ensure the remote server is up.")
             return
 
-        conn = sqlite3.connect(DB_PATH)
-        events_df = pd.read_sql_query(
-            "SELECT * FROM sensor_events ORDER BY id DESC LIMIT 50", conn
-        )
-        # Summary stats
-        total_events = pd.read_sql_query("SELECT COUNT(*) as n FROM sensor_events", conn).iloc[0]["n"]
-        violations   = pd.read_sql_query(
-            "SELECT COUNT(*) as n FROM sensor_events WHERE event='VIOLATION_CONFIRMED'", conn
-        ).iloc[0]["n"]
+        events_df = pd.DataFrame(events)
+        total_events = stats.get("total_events", 0)
+        violations = stats.get("violations", 0)
+        live_nodes_count = stats.get("live_nodes_count", 0)
         
-        # Calculate live nodes (events in the last 60 seconds)
-        live_nodes_df = pd.read_sql_query(
-            "SELECT DISTINCT device_id FROM sensor_events WHERE timestamp > strftime('%s','now') - 60", conn
-        )
-        live_nodes_count = len(live_nodes_df)
         if live_nodes_count > 0:
-            active_nodes = ", ".join(live_nodes_df["device_id"].tolist())
-            delta_val = f"↑ {active_nodes}"
+            delta_val = f"↑ {live_nodes_count} Active"
         else:
             delta_val = "↓ Offline"
-            
-        conn.close()
+
 
         k1, k2, k3 = st.columns(3)
         k1.metric("Total IoT Events",   f"{int(total_events):,}")

@@ -80,6 +80,28 @@ def receive_sensor_event(payload: SensorEvent):
     print(f"[IoT]  {payload.event} | Zone:{payload.zone_id}")
     return {"status": "received"}
 
+@app.get("/api/sensor-events/recent")
+def get_recent_sensor_events(limit: int = 50):
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT * FROM sensor_events ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+@app.get("/api/sensor-events/stats")
+def get_sensor_stats():
+    conn = sqlite3.connect(DB_FILE)
+    stats = {}
+    total_events = conn.execute("SELECT COUNT(*) FROM sensor_events").fetchone()[0]
+    violations = conn.execute("SELECT COUNT(*) FROM sensor_events WHERE event='VIOLATION_CONFIRMED'").fetchone()[0]
+    live_nodes_count = conn.execute("SELECT COUNT(DISTINCT device_id) FROM sensor_events WHERE timestamp > strftime('%s','now') - 60").fetchone()[0]
+    
+    stats["total_events"] = total_events
+    stats["violations"] = violations
+    stats["live_nodes_count"] = live_nodes_count
+    conn.close()
+    return stats
+
 # ── CCTV / YOLOv8 Model ───────────────────────────────────────────────────────
 class CCTVEvent(BaseModel):
     device_id: str
