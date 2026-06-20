@@ -555,21 +555,17 @@ elif page == "🎥 City-Wide CCTV Network":
 
     @st.fragment(run_every=2)
     def render_hardware_badge():
-        # Fetch current state for the status badge
         try:
             state = req.get(f"{API_BASE}/api/device-state", timeout=1).json()
-            current_mode = state.get("mode", "CCTV")
-            alert_level  = state.get("alert_level", "VACANT")
+            alert_level = state.get("alert_level", "VACANT")
         except Exception:
-            current_mode = "CCTV"
-            alert_level  = "VACANT"
-
+            alert_level = "VACANT"
         level_cfg = {
-            "VACANT":   {"color": "#555",    "bg": "#22222233", "label": "⚫ NO VIOLATION",   "dot": "#555",    "blink": False},
-            "LOW":      {"color": "#00c800", "bg": "#00c80022", "label": "🟢 LOW",            "dot": "#00c800", "blink": False},
-            "MEDIUM":   {"color": "#f5c200", "bg": "#f5c20022", "label": "🟡 MEDIUM",         "dot": "#f5c200", "blink": False},
-            "HIGH":     {"color": "#ff4b4b", "bg": "#ff4b4b22", "label": "🔴 HIGH",           "dot": "#ff4b4b", "blink": False},
-            "CRITICAL": {"color": "#ff1111", "bg": "#ff111122", "label": "🚨 CRITICAL",       "dot": "#ff1111", "blink": True },
+            "VACANT":   {"color": "#555",    "bg": "#22222233", "label": "⚫ NO VIOLATION",  "dot": "#555",    "blink": False},
+            "LOW":      {"color": "#00c800", "bg": "#00c80022", "label": "🟢 LOW",           "dot": "#00c800", "blink": False},
+            "MEDIUM":   {"color": "#f5c200", "bg": "#f5c20022", "label": "🟡 MEDIUM",        "dot": "#f5c200", "blink": False},
+            "HIGH":     {"color": "#ff4b4b", "bg": "#ff4b4b22", "label": "🔴 HIGH",          "dot": "#ff4b4b", "blink": False},
+            "CRITICAL": {"color": "#ff1111", "bg": "#ff111122", "label": "🚨 CRITICAL",      "dot": "#ff1111", "blink": True },
         }
         cfg = level_cfg.get(alert_level, level_cfg["VACANT"])
         dot_class = "led-blink" if cfg["blink"] else ""
@@ -578,7 +574,6 @@ elif page == "🎥 City-Wide CCTV Network":
             f"display:inline-block;margin-right:6px;"
             + (f"box-shadow:0 0 8px {cfg['dot']};" if not cfg["blink"] and alert_level != "VACANT" else "")
         )
-
         st.markdown(f"""
         <div style="display:flex;align-items:center;gap:16px;padding:10px 18px;
                     border-radius:10px;background:#1a1a2e;margin-bottom:12px;border:1px solid #333;">
@@ -596,12 +591,208 @@ elif page == "🎥 City-Wide CCTV Network":
             <span style="color:#888;font-size:0.78rem;">HC-SR04 sensor disabled</span>
         </div>
         """, unsafe_allow_html=True)
-    
+
     render_hardware_badge()
 
     st.markdown("---")
-    
-    st.markdown("### 🎛️ Upload Custom Video for Detection")
+
+    # ══════════════════════════════════════════════════════════════════════
+    # IN-BROWSER ZONE CALIBRATION TOOL
+    # ══════════════════════════════════════════════════════════════════════
+    with st.expander("🛠️ Zone Calibration Tool — Click to Define No-Parking Zones", expanded=False):
+        st.caption("Upload a single frame/screenshot from your camera feed. Click on the image to mark zone boundaries. All calibration is saved automatically to `data/calibration.json`.")
+
+        from streamlit_image_coordinates import streamlit_image_coordinates
+        from PIL import Image, ImageDraw
+        import json, io
+
+        cam_id_calib = st.selectbox("Camera to Calibrate", ["CCTV-CAM-01", "CCTV-CAM-02"], key="calib_cam")
+        frame_src = st.radio("Frame Source", ["Upload an image/screenshot", "Use first frame from uploaded video"], horizontal=True, key="frame_src")
+
+        calib_img = None
+        if frame_src == "Upload an image/screenshot":
+            img_file = st.file_uploader("Upload camera frame (JPG/PNG)", type=["jpg", "jpeg", "png"], key="calib_img_upload")
+            if img_file:
+                calib_img = Image.open(img_file).convert("RGB")
+        else:
+            # Extract first frame from uploaded video
+            video_path_calib = "data/uploaded_video.mp4"
+            if os.path.exists(video_path_calib):
+                import cv2 as _cv2
+                _cap = _cv2.VideoCapture(video_path_calib)
+                _ret, _frame = _cap.read()
+                _cap.release()
+                if _ret:
+                    calib_img = Image.fromarray(_cv2.cvtColor(_frame, _cv2.COLOR_BGR2RGB))
+                    st.success("✅ First frame extracted from uploaded video.")
+                else:
+                    st.warning("Could not read the uploaded video. Please upload the video first.")
+            else:
+                st.info("No video uploaded yet. Upload a video above, or switch to image upload.")
+
+        if calib_img:
+            # ── Session state init ────────────────────────────────────────
+            if "calib_state" not in st.session_state or st.session_state.get("calib_cam_prev") != cam_id_calib:
+                st.session_state["calib_state"] = {
+                    "phase": "road",       # "road" or "zone"
+                    "road_pts": [],        # [left_pt, right_pt]
+                    "zone_pts": [],        # up to 4 points for current zone
+                    "saved_zones": [],     # list of {road_width_px, polygon}
+                }
+                st.session_state["calib_cam_prev"] = cam_id_calib
+
+            cs = st.session_state["calib_state"]
+
+            # ── Instructions ─────────────────────────────────────────────
+            if cs["phase"] == "road":
+                n = len(cs["road_pts"])
+                if n == 0:
+                    st.info("**Step 1 of 2 — Road Width:** Click the **LEFT edge** of the road/lane in the image below.")
+                else:
+                    st.info("**Step 1 of 2 — Road Width:** Now click the **RIGHT edge** of the road/lane.")
+            else:
+                n = len(cs["zone_pts"])
+                st.info(f"**Step 2 of 2 — No-Parking Zone:** Click **point {n+1} of 4** to define the zone polygon corners.")
+
+            # ── Draw annotations on image ─────────────────────────────────
+            display_img = calib_img.copy()
+            draw = ImageDraw.Draw(display_img)
+
+            # Draw saved zones in green
+            for z in cs["saved_zones"]:
+                pts = [tuple(p) for p in z["polygon"]]
+                draw.polygon(pts, outline=(0, 220, 80), fill=(0, 220, 80, 60))
+                for p in pts:
+                    draw.ellipse([p[0]-5, p[1]-5, p[0]+5, p[1]+5], fill=(0, 220, 80))
+
+            # Draw road width line in cyan
+            if len(cs["road_pts"]) == 2:
+                p1, p2 = tuple(cs["road_pts"][0]), tuple(cs["road_pts"][1])
+                draw.line([p1, p2], fill=(0, 220, 255), width=3)
+                draw.ellipse([p1[0]-5, p1[1]-5, p1[0]+5, p1[1]+5], fill=(0, 220, 255))
+                draw.ellipse([p2[0]-5, p2[1]-5, p2[0]+5, p2[1]+5], fill=(0, 220, 255))
+            elif len(cs["road_pts"]) == 1:
+                p1 = tuple(cs["road_pts"][0])
+                draw.ellipse([p1[0]-5, p1[1]-5, p1[0]+5, p1[1]+5], fill=(0, 220, 255))
+
+            # Draw current zone points in red
+            for i, p in enumerate(cs["zone_pts"]):
+                pt = tuple(p)
+                draw.ellipse([pt[0]-5, pt[1]-5, pt[0]+5, pt[1]+5], fill=(255, 80, 80))
+                if i > 0:
+                    draw.line([tuple(cs["zone_pts"][i-1]), pt], fill=(255, 80, 80), width=2)
+
+            # ── Clickable image ───────────────────────────────────────────
+            # Resize for display (max 800px wide)
+            orig_w, orig_h = display_img.size
+            display_w = min(800, orig_w)
+            scale = display_w / orig_w
+            display_h = int(orig_h * scale)
+            display_resized = display_img.resize((display_w, display_h))
+
+            clicked = streamlit_image_coordinates(display_resized, key=f"calib_click_{cam_id_calib}")
+
+            if clicked:
+                # Scale click back to original image coords
+                real_x = int(clicked["x"] / scale)
+                real_y = int(clicked["y"] / scale)
+
+                if cs["phase"] == "road":
+                    cs["road_pts"].append([real_x, real_y])
+                    if len(cs["road_pts"]) == 2:
+                        cs["phase"] = "zone"
+                        st.rerun()
+                    else:
+                        st.rerun()
+
+                elif cs["phase"] == "zone":
+                    cs["zone_pts"].append([real_x, real_y])
+                    if len(cs["zone_pts"]) == 4:
+                        # Zone complete — save it
+                        road_w = abs(cs["road_pts"][1][0] - cs["road_pts"][0][0]) if len(cs["road_pts"]) == 2 else 640
+                        cs["saved_zones"].append({
+                            "road_width_px": road_w,
+                            "polygon": cs["zone_pts"].copy()
+                        })
+                        cs["zone_pts"] = []
+                        st.success(f"✅ Zone {len(cs['saved_zones'])} saved! Click 4 more points for another zone, or click **Save Calibration** below.")
+                        st.rerun()
+                    else:
+                        st.rerun()
+
+            # ── Status display ────────────────────────────────────────────
+            col_s1, col_s2 = st.columns(2)
+            with col_s1:
+                if len(cs["road_pts"]) == 2:
+                    rw = abs(cs["road_pts"][1][0] - cs["road_pts"][0][0])
+                    st.success(f"✅ Road width: **{rw}px**")
+            with col_s2:
+                st.info(f"**{len(cs['saved_zones'])} zone(s)** marked so far.")
+
+            # ── Action buttons ────────────────────────────────────────────
+            btn_col1, btn_col2, btn_col3 = st.columns(3)
+            with btn_col1:
+                if st.button("↩️ Undo Last Point", use_container_width=True):
+                    if cs["zone_pts"]:
+                        cs["zone_pts"].pop()
+                    elif cs["saved_zones"]:
+                        removed = cs["saved_zones"].pop()
+                        cs["zone_pts"] = removed["polygon"]
+                        cs["phase"] = "zone"
+                    elif cs["road_pts"]:
+                        cs["road_pts"].pop()
+                        cs["phase"] = "road"
+                    st.rerun()
+
+            with btn_col2:
+                if st.button("🔄 Reset All", use_container_width=True):
+                    st.session_state["calib_state"] = {
+                        "phase": "road", "road_pts": [], "zone_pts": [], "saved_zones": []
+                    }
+                    st.rerun()
+
+            with btn_col3:
+                can_save = len(cs["saved_zones"]) > 0 and len(cs["road_pts"]) == 2
+                if st.button("💾 Save Calibration", type="primary", use_container_width=True, disabled=not can_save):
+                    os.makedirs("data", exist_ok=True)
+                    # Load existing calibration if any
+                    calib_data = {}
+                    if os.path.exists("data/calibration.json"):
+                        try:
+                            with open("data/calibration.json", "r") as f:
+                                calib_data = json.load(f)
+                        except Exception:
+                            pass
+
+                    # Build zones for this camera
+                    calib_data[cam_id_calib] = {"zones": {}}
+                    for i, z in enumerate(cs["saved_zones"]):
+                        calib_data[cam_id_calib]["zones"][f"Zone-{i+1}"] = {
+                            "road_width_px": z["road_width_px"],
+                            "polygon": z["polygon"]
+                        }
+
+                    with open("data/calibration.json", "w") as f:
+                        json.dump(calib_data, f, indent=2)
+
+                    st.success(f"✅ Calibration saved for **{cam_id_calib}** with {len(cs['saved_zones'])} zone(s)!")
+                    st.balloons()
+
+                    # Reset state
+                    st.session_state["calib_state"] = {
+                        "phase": "road", "road_pts": [], "zone_pts": [], "saved_zones": []
+                    }
+
+        # Show current calibration.json if it exists
+        if os.path.exists("data/calibration.json"):
+            with open("data/calibration.json") as f:
+                existing = json.load(f)
+            st.markdown("#### 📋 Current Saved Calibration")
+            st.json(existing)
+
+    st.markdown("---")
+
+    st.markdown("### 🎛️ Upload & Run AI Detection")
     uploaded_file = st.file_uploader("Upload a traffic video (.mp4) to run the AI detector", type=["mp4", "avi", "mov"])
     if uploaded_file is not None:
         import os
@@ -609,13 +800,6 @@ elif page == "🎥 City-Wide CCTV Network":
         video_path = f"data/uploaded_video.mp4"
         with open(video_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
-        
-        st.success(f"Video uploaded successfully!")
-        
-        bc1, bc2, bc3 = st.columns(3)
-        with bc1:
-            if st.button("🛠️ 1. Calibrate Zones", use_container_width=True):
-                import subprocess
                 subprocess.Popen(["python", "src/cctv_detector.py", "--source", video_path, "--calibrate"])
                 st.info("Check your taskbar! A calibration window has opened. Click your zones and press ENTER. Your zones will be auto-saved!")
         with bc2:

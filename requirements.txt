@@ -7,3 +7,5 @@ streamlit
 folium
 streamlit-folium
 opencv-python-headless
+streamlit-image-coordinates
+Pillow
