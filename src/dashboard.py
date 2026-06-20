@@ -851,8 +851,7 @@ async function sendPoints() {{
                 st.session_state["last_uploaded_vid"] = file_id
             except OSError:
                 pass # File is likely locked by the running detector, ignore
-
-
+        
         st.success("Video uploaded! Calibrate your zones in the tool above, then start detection below.")
 
         detector_running = (
@@ -900,53 +899,68 @@ async function sendPoints() {{
 
 
     st.markdown("---")
-
     st.markdown("### 📷 Live CCTV Feed")
-    # MJPEG img tag is OUTSIDE any fragment — the browser holds ONE persistent
-    # HTTP connection and the image never drops or flickers on re-render.
     v1, v2 = st.columns(2)
+
     with v1:
         st.markdown("**Node 1: CCTV-CAM-01**")
-        st.markdown(
-            f"""
-            <div style="border:2px solid #444;border-radius:10px;overflow:hidden;
-                        background:#111;line-height:0;position:relative;min-height:250px;">
-              <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:#888;">
-                 <h3 style="margin:0;">🚫</h3>
-                 <p style="margin:5px 0 0 0;">Camera Offline / Not Available</p>
-              </div>
-              <img id="feed-cam1"
-                   src="{API_BASE}/api/video_feed?cam_id=CCTV-CAM-01"
-                   style="width:100%;display:block;position:relative;z-index:10;"
-                   onload="this.style.display='block'"
-                   onerror="this.style.display='none'; let img=this; setTimeout(()=>{{ img.src='{API_BASE}/api/video_feed?cam_id=CCTV-CAM-01&t='+Date.now() }},2000)">
-              <button onclick="let img = document.getElementById('feed-cam1'); if(img.style.display==='none'){{ alert('Wait for camera feed to connect.'); return; }} if(img.requestFullscreen){{ img.requestFullscreen().catch(err=>alert('Fullscreen error: '+err.message)); }} else if(img.webkitRequestFullscreen){{ img.webkitRequestFullscreen(); }}" 
-                      style="position:absolute;top:10px;right:10px;z-index:20;background:rgba(0,0,0,0.5);border:none;border-radius:6px;color:#fff;cursor:pointer;padding:6px 10px;font-size:16px;box-shadow:0 0 5px rgba(0,0,0,0.5);"
-                      title="Full Screen">⛶</button>
-            </div>
-            """, unsafe_allow_html=True
-        )
+        st.components.v1.html(f"""
+<style>
+body {{ margin:0; background:#0e1117; }}
+.cam-box {{ border:2px solid #444; border-radius:10px; overflow:hidden; background:#111; position:relative; min-height:300px; }}
+.cam-box img {{ width:100%; display:block; }}
+.offline {{ position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; color:#888; font-family:sans-serif; z-index:1; }}
+.cam-box img[src] {{ position:relative; z-index:2; }}
+.fs-btn {{ position:absolute; top:10px; right:10px; z-index:20; background:rgba(0,0,0,0.6); border:none; border-radius:6px; color:#fff; cursor:pointer; padding:6px 12px; font-size:18px; box-shadow:0 0 8px rgba(0,0,0,0.6); }}
+</style>
+<div class="cam-box" id="box1">
+  <div class="offline"><h3>&#128683;</h3><p>Camera Offline</p></div>
+  <img src="{API_BASE}/api/video_feed?cam_id=CCTV-CAM-01">
+  <button class="fs-btn" onclick="goFS()" title="Toggle Full Screen">&#x26F6;</button>
+</div>
+<script>
+function goFS() {{
+  var el = document.getElementById('box1');
+  if (document.fullscreenElement) {{
+    document.exitFullscreen();
+  }} else if (el.requestFullscreen) {{
+    el.requestFullscreen();
+  }} else if (el.webkitRequestFullscreen) {{
+    el.webkitRequestFullscreen();
+  }}
+}}
+</script>
+""", height=380)
+
     with v2:
         st.markdown("**Node 2: CCTV-CAM-02**")
-        st.markdown(
-            f"""
-            <div style="border:2px solid #444;border-radius:10px;overflow:hidden;
-                        background:#111;line-height:0;position:relative;min-height:250px;">
-              <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:#888;">
-                 <h3 style="margin:0;">🚫</h3>
-                 <p style="margin:5px 0 0 0;">Camera Offline / Not Available</p>
-              </div>
-              <img id="feed-cam2"
-                   src="{API_BASE}/api/video_feed?cam_id=CCTV-CAM-02"
-                   style="width:100%;display:block;position:relative;z-index:10;"
-                   onload="this.style.display='block'"
-                   onerror="this.style.display='none'; let img=this; setTimeout(()=>{{ img.src='{API_BASE}/api/video_feed?cam_id=CCTV-CAM-02&t='+Date.now() }},2000)">
-              <button onclick="let img = document.getElementById('feed-cam2'); if(img.style.display==='none'){{ alert('Wait for camera feed to connect.'); return; }} if(img.requestFullscreen){{ img.requestFullscreen().catch(err=>alert('Fullscreen error: '+err.message)); }} else if(img.webkitRequestFullscreen){{ img.webkitRequestFullscreen(); }}" 
-                      style="position:absolute;top:10px;right:10px;z-index:20;background:rgba(0,0,0,0.5);border:none;border-radius:6px;color:#fff;cursor:pointer;padding:6px 10px;font-size:16px;box-shadow:0 0 5px rgba(0,0,0,0.5);"
-                      title="Full Screen">⛶</button>
-            </div>
-            """, unsafe_allow_html=True
-        )
+        st.components.v1.html(f"""
+<style>
+body {{ margin:0; background:#0e1117; }}
+.cam-box {{ border:2px solid #444; border-radius:10px; overflow:hidden; background:#111; position:relative; min-height:300px; }}
+.cam-box img {{ width:100%; display:block; }}
+.offline {{ position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; color:#888; font-family:sans-serif; z-index:1; }}
+.cam-box img[src] {{ position:relative; z-index:2; }}
+.fs-btn {{ position:absolute; top:10px; right:10px; z-index:20; background:rgba(0,0,0,0.6); border:none; border-radius:6px; color:#fff; cursor:pointer; padding:6px 12px; font-size:18px; box-shadow:0 0 8px rgba(0,0,0,0.6); }}
+</style>
+<div class="cam-box" id="box2">
+  <div class="offline"><h3>&#128683;</h3><p>Camera Offline</p></div>
+  <img src="{API_BASE}/api/video_feed?cam_id=CCTV-CAM-02">
+  <button class="fs-btn" onclick="goFS()" title="Toggle Full Screen">&#x26F6;</button>
+</div>
+<script>
+function goFS() {{
+  var el = document.getElementById('box2');
+  if (document.fullscreenElement) {{
+    document.exitFullscreen();
+  }} else if (el.requestFullscreen) {{
+    el.requestFullscreen();
+  }} else if (el.webkitRequestFullscreen) {{
+    el.webkitRequestFullscreen();
+  }}
+}}
+</script>
+""", height=380)
     
     st.markdown("""
         <p style="font-size:0.78rem;color:#888;margin-top:4px;">
