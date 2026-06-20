@@ -484,14 +484,14 @@ void loop() {
 
 The pipeline continuously processes frames from any video source and produces structured violation events:
 
-```
+```text
 Video Frame
     ↓
-YOLOv8 Nano (vehicle detection, COCO classes: car/motorcycle/bus/truck)
+YOLOv8 Nano (vehicle detection, tuned for small objects like scooters/bikes)
     ↓
-ByteTrack multi-object tracker (persistent track IDs across frames)
+ByteTrack multi-object tracker (Strict Intersection-over-Union (IoU) state inheritance to prevent ID swapping)
     ↓
-Ghost-track Resurrection & Majority-vote type locking (eliminating ghost IDs and classification errors)
+Ghost-track Resurrection & Majority-vote type locking (eliminating ghost IDs, tracking latency reduced via tuned TTL)
     ↓
 Zone Checker (cv2.pointPolygonTest against NO_PARKING_ZONES polygons)
     ↓
@@ -501,7 +501,7 @@ CIS Engine (base vehicle score + time-of-day multiplier + lane blockage ratio vs
     ↓
 FastAPI POST → /api/cctv-event → SQLite → Dashboard
     ↓
-Global Hardware State Evaluator (triggers ESP32 hardware via /api/set-buzzer, resets to VACANT when clear)
+Global Hardware State Evaluator (Aggregates highest priority across ALL streams: CRITICAL > HIGH > MEDIUM > LOW > VACANT; resolves race conditions; triggers ESP32 hardware via /api/set-buzzer)
 ```
 
 **Key parameters (tunable in `cctv_detector.py`):**
@@ -602,7 +602,7 @@ CREATE TABLE enforcement_actions (
 
 > **Status: ✅ Fully Implemented** (`src/dashboard.py`)
 
-All five dashboard pages are live. PyDeck (WebGL) replaces Folium for performance on the full 248k-record dataset.
+All five dashboard pages are live. PyDeck (WebGL) replaces Folium for performance on the full 248k-record dataset. The UI has been stabilized for cloud deployments to prevent video feed clipping.
 
 ### Implemented Pages
 
@@ -612,7 +612,7 @@ All five dashboard pages are live. PyDeck (WebGL) replaces Folium for performanc
 | ⚠️ **High-Risk Area Analysis** | ✅ Live | Hotspot table, heatmap, CIS distribution, AI suggestions (7 types) |
 | 📋 **Enforcement Queue** | ✅ Live | Priority-filtered table, colour-coded rows, tow/action counts |
 | 📡 **IoT Sensor Monitor** | ✅ Live | Auto-refresh every 2s, event counts, live DB query |
-| 🎥 **CCTV AI Monitor** | ✅ Live | MJPEG stream embed, real-time event table, zone bar chart, zone suggestions |
+| 🎥 **CCTV AI Monitor** | ✅ Live | Cloud-stabilized MJPEG stream embed, real-time event table, KPI row for low-priority violations, loading states for clean transitions |
 
 ### Auto-refresh Architecture
 

@@ -15,18 +15,23 @@ ParkIQ transforms raw illegal-parking violation records into **prioritised, acti
 
 ## 🏗️ System Architecture
 
-```
-CCTV / Webcams (Multi-Node) ──► YOLOv8 Detector ─────────►┐
-BTP Jan-May Dataset ──────────► Data Pipeline ────────────►│
-ESP32 + HC-SR04 Sensor ───────► FastAPI Backend ◄──────────┘
-                                        │
-                              ┌─────────┴─────────┐
-                              │   SQLite DB        │
-                              └─────────┬─────────┘
-                              ┌─────────▼─────────┐
-                              │ Streamlit Dashboard│
-                              │ (Police Console)   │
-                              └───────────────────┘
+```text
+  [ Physical Inputs ]            [ AI & Data Processing ]             [ Hub & Presentation ]
+
+ ┌──────────────────┐           ┌────────────────────────┐         ┌────────────────────┐
+ │ Multi-Node CCTV  ├──────────►│ YOLOv8 + CIS Engine    ├────────►│                    │
+ │ (Live Feeds)     │           │ (Track, Score, Time)   │         │                    │
+ └──────────────────┘           └────────────────────────┘         │  FastAPI Backend   │
+                                                                   │   (REST & MJPEG)   │
+ ┌──────────────────┐           ┌────────────────────────┐         │         │          │
+ │ ESP32 IoT Node   ├──────────►│ Global State Evaluator │◄────────┤         ▼          │
+ │ (Hardware Demo)  │◄──────────┤ (Sync Hardware Alerts) │         │    SQLite DB       │
+ └──────────────────┘  Feedback └────────────────────────┘         │         │          │
+                                                                   │         ▼          │
+ ┌──────────────────┐           ┌────────────────────────┐         │  Streamlit Dash    │
+ │ BTP Jan-May Data ├──────────►│ Data Pipeline & DBSCAN ├────────►│  (Police Console)  │
+ │ (248k Records)   │           │ (Hotspot Clustering)   │         │                    │
+ └──────────────────┘           └────────────────────────┘         └────────────────────┘
 ```
 
 ---
@@ -113,7 +118,7 @@ To precisely map physical road dimensions and custom no-parking polygons for you
 |---|---|
 | 🧠 **AI Predictive Impact Map** | Predictive mapping using historical data. Features dynamic time-range sliders, real-time dispatch directives, and **Live Zone Analytics** (Vehicle type and violation category breakdown charts). |
 | ⚠️ **High-Risk Area Analysis** | Top-10 congestion hotspots, AI-generated resolution policies, and macro-level city metrics. |
-| 🌐 **City-Wide CCTV Network** | Real-time live feed monitoring, displaying current active violations across the distributed multi-camera nodes. |
+| 🌐 **City-Wide CCTV Network** | Real-time live feed monitoring, displaying current active violations across the distributed multi-camera nodes. Includes layout-stabilized responsive video grids and optimized loading states for seamless navigation. |
 | 📡 **IoT Sensor Monitor** | Live hardware feed from ESP32 nodes indicating Vacant/Occupied/Violation states. |
 
 *(A global `🚨 Live Alert` threat monitor runs constantly in the background, simulating a massive network of 200,000 cameras to push critical tow-truck dispatch toasts to the user).*
@@ -127,11 +132,13 @@ CIS = ( BaseVehicleWeight + ZonePenalty + LaneBlockagePenalty ) × TimeOfDayFact
 ```
 *Note: The **Lane Blockage Penalty** dynamically calculates the vehicle's bounding-box width relative to the physical road width. The **TimeOfDayFactor** applies a 1.3x multiplier during rush hour and 0.5x during night hours!*
 
-| CIS Range | Hardware Trigger | Action |
+| CIS Range | Hardware Trigger (Global Highest Priority) | Action |
 |---|---|---|
-| 0–40 | None | Monitor only |
+| 0–40 | None / 🟢 Green LED (Vacant/Low) | Monitor only |
 | 41–70 | 🟡 Solid Yellow LED | Dispatch patrol for e-challan |
 | 71–100 | 🔴 Solid Red + Buzzer | Emergency heavy-tow clearance |
+
+*The hardware node intelligently aggregates states across all active CCTV feeds, ensuring the ESP32 signals the **highest active violation priority** city-wide without race conditions.*
 
 ---
 
@@ -146,7 +153,7 @@ CIS = ( BaseVehicleWeight + ZonePenalty + LaneBlockagePenalty ) × TimeOfDayFact
 
 ## ⚠️ Honest Limitations
 - No real congestion ground truth in dataset → explainable heuristic CIS (not black-box ML).
-- YOLOv8 Nano struggles with very small/toy vehicles → bounding-box heuristic applied specifically for the tabletop demo model.
+- YOLOv8 Nano has been optimized with lowered confidence thresholds and strict IoU tracking for small vehicles, but extreme occlusion in dense traffic may still cause ID swaps.
 - ESP32 demo node = 1 zone proof-of-concept (production: LoRaWAN fleet).
 
 ---
