@@ -793,7 +793,7 @@ async function sendPoints() {{
     }});
     const data = await resp.json();
     if (data.status === 'saved') {{
-      showToast(`✅ Saved ${{data.zones}} zone(s) for ${{data.cam}}! Reloading...`, true);
+      showToast(`✅ Saved ${{data.zones}} zone(s) for ${{data.cam}}! Reload the page to see the update.`, true);
       btn.textContent = '✅ Saved!';
       setTimeout(() => {{ window.parent.location.reload(); }}, 1200);
     }} else {{
