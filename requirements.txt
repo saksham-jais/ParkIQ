@@ -6,3 +6,4 @@ uvicorn
 streamlit
 folium
 streamlit-folium
+opencv-python-headless
