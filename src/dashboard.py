@@ -842,7 +842,7 @@ async function sendPoints() {{
             except OSError:
                 pass # File is likely locked by the running detector, ignore
         
-        st.success("Video uploaded! Calibrate your zones in the tool above, then start detection below.")
+        st.success("Video uploaded! Calibrate your zones in the tool below, then start detection below.")
 
         detector_running = (
             "detector_proc" in st.session_state
@@ -878,6 +878,14 @@ async function sendPoints() {{
                         except Exception:
                             pass
                     st.session_state["detector_proc"] = None
+                    # Clean up stale frame files so cameras show as offline
+                    for _cam in ["CCTV-CAM-01", "CCTV-CAM-02"]:
+                        _fp = f"data/current_frame_{_cam}.jpg"
+                        try:
+                            if os.path.exists(_fp):
+                                os.remove(_fp)
+                        except Exception:
+                            pass
                     try:
                         import requests
                         requests.post(f"{API_BASE}/api/set-buzzer",
@@ -905,18 +913,24 @@ async function sendPoints() {{
             @st.fragment(run_every=1)
             def cam1_cloud_feed():
                 frame_path = "data/current_frame_CCTV-CAM-01.jpg"
-                if os.path.exists(frame_path):
-                    try:
-                        st.image(frame_path, width="stretch")
-                    except OSError:
-                        pass  # File being written mid-frame, skip this tick
-                else:
-                    st.html("""
-<div style="border:2px solid #444; border-radius:10px; background:#111; position:relative; height:290px; box-sizing:border-box; width:100%; display:flex; align-items:center; justify-content:center; flex-direction:column; color:#888; font-family:sans-serif;">
+                is_running = (
+                    st.session_state.get("detector_proc") is not None
+                    and st.session_state["detector_proc"].poll() is None
+                )
+                _OFFLINE_HTML = """
+<div style="border:2px solid #444; border-radius:10px; background:#111; height:340px; box-sizing:border-box; width:100%; display:flex; align-items:center; justify-content:center; flex-direction:column; color:#888; font-family:sans-serif;">
   <h3 style="margin:0 0 8px 0;">&#128683;</h3>
   <p style="margin:0;">Camera Offline / Not Available</p>
-</div>
-""")
+</div>"""
+                if is_running and os.path.exists(frame_path):
+                    try:
+                        st.html(f'<div style="border:2px solid #444; border-radius:10px; overflow:hidden; height:340px; background:#000;">')
+                        st.image(frame_path, width="stretch")
+                        st.html("</div>")
+                    except OSError:
+                        pass  # File mid-write, skip this tick
+                else:
+                    st.html(_OFFLINE_HTML)
             cam1_cloud_feed()
 
 
@@ -928,18 +942,24 @@ async function sendPoints() {{
             @st.fragment(run_every=1)
             def cam2_cloud_feed():
                 frame_path = "data/current_frame_CCTV-CAM-02.jpg"
-                if os.path.exists(frame_path):
-                    try:
-                        st.image(frame_path, width="stretch")
-                    except OSError:
-                        pass  # File being written mid-frame, skip this tick
-                else:
-                    st.html("""
-<div style="border:2px solid #444; border-radius:10px; background:#111; position:relative; height:290px; box-sizing:border-box; width:100%; display:flex; align-items:center; justify-content:center; flex-direction:column; color:#888; font-family:sans-serif;">
+                is_running = (
+                    st.session_state.get("detector_proc") is not None
+                    and st.session_state["detector_proc"].poll() is None
+                )
+                _OFFLINE_HTML = """
+<div style="border:2px solid #444; border-radius:10px; background:#111; height:340px; box-sizing:border-box; width:100%; display:flex; align-items:center; justify-content:center; flex-direction:column; color:#888; font-family:sans-serif;">
   <h3 style="margin:0 0 8px 0;">&#128683;</h3>
   <p style="margin:0;">Camera Offline / Not Available</p>
-</div>
-""")
+</div>"""
+                if is_running and os.path.exists(frame_path):
+                    try:
+                        st.html(f'<div style="border:2px solid #444; border-radius:10px; overflow:hidden; height:340px; background:#000;">')
+                        st.image(frame_path, width="stretch")
+                        st.html("</div>")
+                    except OSError:
+                        pass  # File mid-write, skip this tick
+                else:
+                    st.html(_OFFLINE_HTML)
             cam2_cloud_feed()
     
     st.markdown("""
