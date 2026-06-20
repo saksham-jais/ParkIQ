@@ -899,7 +899,8 @@ async function sendPoints() {{
 
     with v1:
         st.markdown("**Node 1: CCTV-CAM-01**")
-        st.components.v1.html(f"""
+        if IS_LOCAL:
+            st.components.v1.html(f"""
 <style>
 body {{ margin:0; background:#0e1117; }}
 .cam-box {{ border:2px solid #444; border-radius:10px; overflow:hidden; background:#111; position:relative; min-height:300px; }}
@@ -927,10 +928,20 @@ function goFS() {{
 }}
 </script>
 """, height=480)
+        else:
+            @st.fragment(run_every=1)
+            def cam1_cloud_feed():
+                if os.path.exists("data/latest_frame_CCTV-CAM-01.jpg"):
+                    st.image("data/latest_frame_CCTV-CAM-01.jpg", use_container_width=True)
+                else:
+                    st.error("Camera Offline / Not Available")
+            cam1_cloud_feed()
+
 
     with v2:
         st.markdown("**Node 2: CCTV-CAM-02**")
-        st.components.v1.html(f"""
+        if IS_LOCAL:
+            st.components.v1.html(f"""
 <style>
 body {{ margin:0; background:#0e1117; }}
 .cam-box {{ border:2px solid #444; border-radius:10px; overflow:hidden; background:#111; position:relative; min-height:300px; }}
@@ -958,6 +969,14 @@ function goFS() {{
 }}
 </script>
 """, height=480)
+        else:
+            @st.fragment(run_every=1)
+            def cam2_cloud_feed():
+                if os.path.exists("data/latest_frame_CCTV-CAM-02.jpg"):
+                    st.image("data/latest_frame_CCTV-CAM-02.jpg", use_container_width=True)
+                else:
+                    st.error("Camera Offline / Not Available")
+            cam2_cloud_feed()
     
     st.markdown("""
         <p style="font-size:0.78rem;color:#888;margin-top:4px;">
