@@ -900,100 +900,40 @@ async function sendPoints() {{
     with v1:
         st.markdown("**Node 1: CCTV-CAM-01**")
         if IS_LOCAL:
-            st.components.v1.html(f"""
-<style>
-body {{ margin:0; background:#0e1117; }}
-.cam-box {{ border:2px solid #444; border-radius:10px; overflow:hidden; background:#111; position:relative; min-height:300px; }}
-.cam-box img {{ width:100%; display:block; }}
-.offline {{ position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; color:#888; font-family:sans-serif; z-index:1; }}
-.cam-box img[src] {{ position:relative; z-index:2; }}
-.fs-btn {{ position:absolute; top:10px; right:10px; z-index:20; background:rgba(0,0,0,0.6); border:none; border-radius:6px; color:#fff; cursor:pointer; padding:6px 12px; font-size:18px; box-shadow:0 0 8px rgba(0,0,0,0.6); }}
-</style>
-<div class="cam-box" id="box1">
-  <div class="offline"><h3>&#128683;</h3><p>Camera Offline</p></div>
-  <img src="{API_BASE}/api/video_feed?cam_id=CCTV-CAM-01"
-       onload="var h=this.offsetHeight; if(h>0 && window.frameElement) window.frameElement.style.height=(h+20)+'px';">
-  <button class="fs-btn" onclick="goFS()" title="Toggle Full Screen">&#x26F6;</button>
-</div>
-<script>
-function goFS() {{
-  var el = document.getElementById('box1');
-  if (document.fullscreenElement) {{
-    document.exitFullscreen();
-  }} else if (el.requestFullscreen) {{
-    el.requestFullscreen();
-  }} else if (el.webkitRequestFullscreen) {{
-    el.webkitRequestFullscreen();
-  }}
-}}
-</script>
-""", height=480)
+            st.iframe(f"{API_BASE}/api/video_feed?cam_id=CCTV-CAM-01", height=480)
         else:
             @st.fragment(run_every=1)
             def cam1_cloud_feed():
-                if os.path.exists("data/latest_frame_CCTV-CAM-01.jpg"):
-                    st.image("data/latest_frame_CCTV-CAM-01.jpg", use_container_width=True)
+                frame_path = "data/current_frame_CCTV-CAM-01.jpg"
+                if os.path.exists(frame_path):
+                    st.image(frame_path, use_container_width=True)
                 else:
-                    st.components.v1.html("""
-<style>
-body { margin:0; background:#0e1117; overflow:hidden; }
-.cam-box { border:2px solid #444; border-radius:10px; background:#111; position:relative; height:290px; box-sizing:border-box; width:100%; }
-.offline { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; color:#888; font-family:sans-serif; z-index:1; width:100%; padding:0 10px; box-sizing:border-box; }
-</style>
-<div class="cam-box">
-  <div class="offline"><h3>&#128683;</h3><p>Camera Offline / Not Available</p></div>
+                    st.html("""
+<div style="border:2px solid #444; border-radius:10px; background:#111; position:relative; height:290px; box-sizing:border-box; width:100%; display:flex; align-items:center; justify-content:center; flex-direction:column; color:#888; font-family:sans-serif;">
+  <h3 style="margin:0 0 8px 0;">&#128683;</h3>
+  <p style="margin:0;">Camera Offline / Not Available</p>
 </div>
-""", height=300)
+""")
             cam1_cloud_feed()
 
 
     with v2:
         st.markdown("**Node 2: CCTV-CAM-02**")
         if IS_LOCAL:
-            st.components.v1.html(f"""
-<style>
-body {{ margin:0; background:#0e1117; }}
-.cam-box {{ border:2px solid #444; border-radius:10px; overflow:hidden; background:#111; position:relative; min-height:300px; }}
-.cam-box img {{ width:100%; display:block; }}
-.offline {{ position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; color:#888; font-family:sans-serif; z-index:1; }}
-.cam-box img[src] {{ position:relative; z-index:2; }}
-.fs-btn {{ position:absolute; top:10px; right:10px; z-index:20; background:rgba(0,0,0,0.6); border:none; border-radius:6px; color:#fff; cursor:pointer; padding:6px 12px; font-size:18px; box-shadow:0 0 8px rgba(0,0,0,0.6); }}
-</style>
-<div class="cam-box" id="box2">
-  <div class="offline"><h3>&#128683;</h3><p>Camera Offline</p></div>
-  <img src="{API_BASE}/api/video_feed?cam_id=CCTV-CAM-02"
-       onload="var h=this.offsetHeight; if(h>0 && window.frameElement) window.frameElement.style.height=(h+20)+'px';">
-  <button class="fs-btn" onclick="goFS()" title="Toggle Full Screen">&#x26F6;</button>
-</div>
-<script>
-function goFS() {{
-  var el = document.getElementById('box2');
-  if (document.fullscreenElement) {{
-    document.exitFullscreen();
-  }} else if (el.requestFullscreen) {{
-    el.requestFullscreen();
-  }} else if (el.webkitRequestFullscreen) {{
-    el.webkitRequestFullscreen();
-  }}
-}}
-</script>
-""", height=480)
+            st.iframe(f"{API_BASE}/api/video_feed?cam_id=CCTV-CAM-02", height=480)
         else:
             @st.fragment(run_every=1)
             def cam2_cloud_feed():
-                if os.path.exists("data/latest_frame_CCTV-CAM-02.jpg"):
-                    st.image("data/latest_frame_CCTV-CAM-02.jpg", use_container_width=True)
+                frame_path = "data/current_frame_CCTV-CAM-02.jpg"
+                if os.path.exists(frame_path):
+                    st.image(frame_path, use_container_width=True)
                 else:
-                    st.components.v1.html("""
-<style>
-body { margin:0; background:#0e1117; overflow:hidden; }
-.cam-box { border:2px solid #444; border-radius:10px; background:#111; position:relative; height:290px; box-sizing:border-box; width:100%; }
-.offline { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; color:#888; font-family:sans-serif; z-index:1; width:100%; padding:0 10px; box-sizing:border-box; }
-</style>
-<div class="cam-box">
-  <div class="offline"><h3>&#128683;</h3><p>Camera Offline / Not Available</p></div>
+                    st.html("""
+<div style="border:2px solid #444; border-radius:10px; background:#111; position:relative; height:290px; box-sizing:border-box; width:100%; display:flex; align-items:center; justify-content:center; flex-direction:column; color:#888; font-family:sans-serif;">
+  <h3 style="margin:0 0 8px 0;">&#128683;</h3>
+  <p style="margin:0;">Camera Offline / Not Available</p>
 </div>
-""", height=300)
+""")
             cam2_cloud_feed()
     
     st.markdown("""
