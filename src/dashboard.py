@@ -896,7 +896,7 @@ async function sendPoints() {{
                     st.warning("Detector stopped. Hardware LEDs reset.")
                     st.rerun()
 
-    st.markdown("---")
+    # st.markdown("---")
 
     calibration_tool()
 
