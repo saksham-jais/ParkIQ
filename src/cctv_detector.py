@@ -32,7 +32,7 @@ from ultralytics import YOLO
 # ─────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────
-SERVER_URL       = "http://127.0.0.1:8000/api/cctv-event"
+BASE_API_URL     = "http://127.0.0.1:8000"
 # These will be overridden by argparse if provided
 DEVICE_ID        = "CCTV-CAM-01"
 CAMERA_LOCATION  = "MG Road Junction, Bengaluru"
@@ -113,10 +113,6 @@ for cam, cfg in ROAD_CONFIG.items():
     for z_id, z_data in cfg.get("zones", {}).items():
         NO_PARKING_ZONES[cam][z_id] = z_data["polygon"] if isinstance(z_data, dict) else z_data
 
-# ── Buzzer trigger via ESP32 backend ──────────────────────────────────────────
-BUZZER_API_URL = "http://127.0.0.1:8000/api/sensor-event"  # same FastAPI server
-SET_BUZZER_URL = "http://127.0.0.1:8000/api/set-buzzer"
-
 def trigger_buzzer_alert(zone_id: str, priority: str):
     """Tell backend to trigger ESP32 hardware LEDs and buzzer."""
     import requests
@@ -124,7 +120,7 @@ def trigger_buzzer_alert(zone_id: str, priority: str):
     # Send the exact alert level to the backend API
     # Buzzer is ONLY active if priority is CRITICAL
     try:
-        r = requests.post(SET_BUZZER_URL, json={
+        r = requests.post(f"{BASE_API_URL}/api/set-buzzer", json={
             "active": priority == "CRITICAL", 
             "zone_id": zone_id, 
             "level": priority
@@ -135,7 +131,7 @@ def trigger_buzzer_alert(zone_id: str, priority: str):
     
     # 3. Update dashboard database
     try:
-        requests.post(BUZZER_API_URL, json={
+        requests.post(f"{BASE_API_URL}/api/sensor-event", json={
             "device_id": DEVICE_ID,
             "zone_id": zone_id,
             "event": "VIOLATION_CONFIRMED",
@@ -177,7 +173,7 @@ def update_hardware_leds(active_track_ids, track_entry_time, track_vehicle_type,
             elif p == "LOW" and highest_priority == "VACANT": highest_priority = "LOW"
                 
     try:
-        r = requests.post(SET_BUZZER_URL, json={"active": highest_priority == "CRITICAL", "zone_id": "", "level": highest_priority}, timeout=2.0)
+        r = requests.post(f"{BASE_API_URL}/api/set-buzzer", json={"active": highest_priority == "CRITICAL", "zone_id": "", "level": highest_priority}, timeout=2.0)
         print(f"[LED] Global State updated to {highest_priority} -> HTTP {r.status_code}")
     except Exception as e:
         print(f"[LED] Failed to update global state to {highest_priority}: {e}")
@@ -287,7 +283,7 @@ def send_event(track_id, vehicle_type, zone_id, event_type, dwell_sec, cis, prio
         "timestamp":      int(time.time()),
     }
     try:
-        r = requests.post(SERVER_URL, json=payload, timeout=2)
+        r = requests.post(f"{BASE_API_URL}/api/cctv-event", json=payload, timeout=2)
         print(f"[{event_type}] Track#{track_id} {vehicle_type} Zone:{zone_id} CIS:{cis} → HTTP {r.status_code}")
     except Exception as e:
         print(f"[WARN] Could not reach API: {e}")
@@ -375,7 +371,7 @@ def run(source=0, show=True):
 
     frame_idx = 0
     print(f"[ParkIQ] Starting detection on source: {source}")
-    print(f"[ParkIQ] Violation threshold: {VIOLATION_SEC}s | Server: {SERVER_URL}")
+    print(f"[ParkIQ] Violation threshold: {VIOLATION_SEC}s | Server: {BASE_API_URL}")
 
     while True:
         ret, frame = cap.read()
@@ -686,7 +682,7 @@ def run(source=0, show=True):
     print("[ParkIQ] Resetting hardware LEDs to VACANT.")
     try:
         import requests
-        requests.post(SET_BUZZER_URL, json={"active": False, "zone_id": "", "level": "VACANT"}, timeout=2.0)
+        requests.post(f"{BASE_API_URL}/api/set-buzzer", json={"active": False, "zone_id": "", "level": "VACANT"}, timeout=2.0)
     except Exception:
         pass
 
@@ -709,7 +705,12 @@ if __name__ == "__main__":
                         help="Open calibration mode to click your no-parking zone corners")
     parser.add_argument("--device-id", default="CCTV-CAM-01",
                         help="Override the camera device ID for multi-camera setups.")
+    parser.add_argument("--cloud", action="store_true",
+                        help="Point to the hosted Render backend instead of localhost.")
     args = parser.parse_args()
+
+    if args.cloud:
+        BASE_API_URL = "https://parkiq-glrk.onrender.com"
 
     DEVICE_ID = args.device_id
     

@@ -4,6 +4,11 @@ import os
 import sqlite3
 import requests
 import pydeck as pdk
+import platform
+
+# Auto-detect if running locally or in production (Streamlit Cloud uses Linux)
+IS_LOCAL = platform.system() == "Windows"
+API_BASE = "http://127.0.0.1:8000" if IS_LOCAL else "https://parkiq-glrk.onrender.com"
 
 st.set_page_config(page_title="ParkIQ Dashboard", layout="wide", page_icon="🚦")
 
@@ -49,9 +54,9 @@ if st.query_params.get("page") != page:
 
 try:
     if page == "🎥 City-Wide CCTV Network":
-        requests.post("http://127.0.0.1:8000/api/set-mode", json={"mode": "CCTV"}, timeout=0.5)
+        requests.post(f"{API_BASE}/api/set-mode", json={"mode": "CCTV"}, timeout=0.5)
     else:
-        requests.post("http://127.0.0.1:8000/api/set-mode", json={"mode": "IOT"}, timeout=0.5)
+        requests.post(f"{API_BASE}/api/set-mode", json={"mode": "IOT"}, timeout=0.5)
 except Exception:
     pass
 
@@ -538,7 +543,6 @@ elif page == "📡 IoT Sensor Monitor":
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "🎥 City-Wide CCTV Network":
     import requests as req
-    API_BASE = "http://127.0.0.1:8000"
 
     st.title("🎥 City-Wide CCTV Network — Live Node Dashboard")
     st.caption("Monitoring real-time parking detections across 200,000 simulated city-wide computer vision nodes")
@@ -650,7 +654,7 @@ elif page == "🎥 City-Wide CCTV Network":
                     # Force hardware state reset on manual stop
                     try:
                         import requests
-                        requests.post("http://127.0.0.1:8000/api/set-buzzer", 
+                        requests.post(f"{API_BASE}/api/set-buzzer", 
                                       json={"active": False, "zone_id": "", "level": "VACANT"}, 
                                       timeout=2.0)
                     except Exception:
@@ -676,10 +680,10 @@ elif page == "🎥 City-Wide CCTV Network":
                  <p style="margin:5px 0 0 0;">Camera Offline / Not Available</p>
               </div>
               <img id="feed-cam1"
-                   src="http://127.0.0.1:8000/api/video_feed?cam_id=CCTV-CAM-01"
+                   src="{API_BASE}/api/video_feed?cam_id=CCTV-CAM-01"
                    style="width:100%;display:block;position:relative;z-index:10;"
                    onload="this.style.display='block'"
-                   onerror="this.style.display='none'; let img=this; setTimeout(()=>{ img.src='http://127.0.0.1:8000/api/video_feed?cam_id=CCTV-CAM-01&t='+Date.now() },2000)">
+                   onerror="this.style.display='none'; let img=this; setTimeout(()=>{ img.src='{API_BASE}/api/video_feed?cam_id=CCTV-CAM-01&t='+Date.now() },2000)">
             </div>
             """, unsafe_allow_html=True
         )
@@ -694,10 +698,10 @@ elif page == "🎥 City-Wide CCTV Network":
                  <p style="margin:5px 0 0 0;">Camera Offline / Not Available</p>
               </div>
               <img id="feed-cam2"
-                   src="http://127.0.0.1:8000/api/video_feed?cam_id=CCTV-CAM-02"
+                   src="{API_BASE}/api/video_feed?cam_id=CCTV-CAM-02"
                    style="width:100%;display:block;position:relative;z-index:10;"
                    onload="this.style.display='block'"
-                   onerror="this.style.display='none'; let img=this; setTimeout(()=>{ img.src='http://127.0.0.1:8000/api/video_feed?cam_id=CCTV-CAM-02&t='+Date.now() },2000)">
+                   onerror="this.style.display='none'; let img=this; setTimeout(()=>{ img.src='{API_BASE}/api/video_feed?cam_id=CCTV-CAM-02&t='+Date.now() },2000)">
             </div>
             """, unsafe_allow_html=True
         )
