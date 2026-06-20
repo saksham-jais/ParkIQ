@@ -119,42 +119,47 @@ def get_recent_cctv_events(limit: int = 50):
 def get_cctv_stats():
     """Aggregated violation stats for the dashboard — LIVE only (last 90s, non-vacated tracks)."""
     conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
     stats = {}
 
-    LIVE_WINDOW = 20  # seconds — telemetry fires every 3s, so 20s is plenty for active tracks
+    LIVE_WINDOW = 7  # seconds — telemetry fires every 3s, so 7s is enough to drop dead tracks quickly
 
-    # All tracks seen in the window that have NOT sent a VACATED as their latest event
+    # Fetch the latest event for each track that was active in the LIVE_WINDOW
     live_rows = conn.execute(
         """
-        SELECT track_id,
-               MAX(timestamp) as last_ts,
-               MAX(CASE WHEN event='VACATED' THEN timestamp ELSE 0 END) as vacated_ts,
-               MAX(CASE WHEN event='VIOLATION_CONFIRMED' THEN 1 ELSE 0 END) as had_violation,
-               MAX(CASE WHEN event='VIOLATION_CONFIRMED' THEN priority ELSE NULL END) as viol_priority,
-               MAX(CASE WHEN event='VIOLATION_CONFIRMED' THEN zone_id ELSE NULL END) as viol_zone
-        FROM cctv_events
-        WHERE timestamp > strftime('%s','now') - ?
-        GROUP BY track_id
-        HAVING last_ts > vacated_ts
+        SELECT track_id, event, priority, zone_id, duration_sec
+        FROM (
+            SELECT *,
+                   ROW_NUMBER() OVER(PARTITION BY track_id ORDER BY timestamp DESC, id DESC) as rn
+            FROM cctv_events
+        )
+        WHERE rn = 1
+          AND timestamp > strftime('%s','now') - ?
+          AND event != 'VACATED'
         """,
         (LIVE_WINDOW,)
     ).fetchall()
 
     active_vehicles = len(live_rows)
-    live_violations = sum(1 for r in live_rows if r[3] == 1)
-    live_high       = sum(1 for r in live_rows if r[4] == "HIGH")
-    live_medium     = sum(1 for r in live_rows if r[4] == "MEDIUM")
+    # VIOLATION_SEC is 8 seconds in the detector
+    live_violations = sum(1 for r in live_rows if r['duration_sec'] >= 8)
+    live_critical   = sum(1 for r in live_rows if r['duration_sec'] >= 8 and r['priority'] == "CRITICAL")
+    live_high       = sum(1 for r in live_rows if r['duration_sec'] >= 8 and r['priority'] == "HIGH")
+    live_medium     = sum(1 for r in live_rows if r['duration_sec'] >= 8 and r['priority'] == "MEDIUM")
+    live_low        = sum(1 for r in live_rows if r['duration_sec'] >= 8 and r['priority'] == "LOW")
 
     stats["active_vehicles"]  = active_vehicles
     stats["total_violations"] = live_violations
+    stats["critical_priority"]= live_critical
     stats["high_priority"]    = live_high
     stats["medium_priority"]  = live_medium
+    stats["low_priority"]     = live_low
 
     # By-zone live count
     zone_counts = {}
     for r in live_rows:
-        if r[3] == 1 and r[5]:   # had_violation and has a zone
-            zone_counts[r[5]] = zone_counts.get(r[5], 0) + 1
+        if r['duration_sec'] >= 8 and r['zone_id']:
+            zone_counts[r['zone_id']] = zone_counts.get(r['zone_id'], 0) + 1
     stats["by_zone"] = [{"zone_id": z, "count": c} for z, c in sorted(zone_counts.items(), key=lambda x: -x[1])]
 
     # All-time historical totals kept for trend/reference
@@ -293,6 +298,24 @@ class BuzzerUpdate(BaseModel):
 
 @app.get("/api/device-state")
 def get_device_state():
+    if AppState.mode == "CCTV":
+        stats = get_cctv_stats()
+        if stats.get("critical_priority", 0) > 0:
+            AppState.cctv_alert_level = "CRITICAL"
+            AppState.cctv_buzzer_active = True
+        elif stats.get("high_priority", 0) > 0:
+            AppState.cctv_alert_level = "HIGH"
+            AppState.cctv_buzzer_active = False
+        elif stats.get("medium_priority", 0) > 0:
+            AppState.cctv_alert_level = "MEDIUM"
+            AppState.cctv_buzzer_active = False
+        elif stats.get("low_priority", 0) > 0:
+            AppState.cctv_alert_level = "LOW"
+            AppState.cctv_buzzer_active = False
+        else:
+            AppState.cctv_alert_level = "VACANT"
+            AppState.cctv_buzzer_active = False
+
     return {
         "mode": AppState.mode,
         "buzzer": AppState.cctv_buzzer_active,

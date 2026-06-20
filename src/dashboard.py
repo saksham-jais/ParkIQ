@@ -15,6 +15,11 @@ st.markdown("""
     .risk-card-low    { background:#00c80022; border-left:4px solid #00c800; padding:10px 14px; border-radius:6px; margin-bottom:8px; }
     .suggest-box      { background:#1e3a5f22; border-left:4px solid #4a9eff; padding:10px 14px; border-radius:6px; margin-bottom:6px; }
     .stat-label       { font-size:0.78rem; color:#888; text-transform:uppercase; letter-spacing:0.05em; }
+    @keyframes blink-red {
+        0%, 100% { opacity: 1; box-shadow: 0 0 10px #ff2222, 0 0 20px #ff2222; }
+        50%      { opacity: 0.2; box-shadow: none; }
+    }
+    .led-blink { animation: blink-red 0.6s ease-in-out infinite; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -33,7 +38,14 @@ if "page" in st.query_params:
 
 page = st.sidebar.radio("Navigate", PAGES, index=default_index)
 
-st.query_params["page"] = page
+if st.query_params.get("page") != page:
+    loader_placeholder = st.empty()
+    with loader_placeholder.container():
+        with st.spinner(f"Loading {page}..."):
+            import time
+            time.sleep(0.6)  # Forced delay to make loader visible
+    loader_placeholder.empty()
+    st.query_params["page"] = page
 
 try:
     if page == "🎥 City-Wide CCTV Network":
@@ -69,7 +81,7 @@ def global_threat_monitor():
             loc = event['location']
             cis = event['CIS']
             cam_id = f"CAM-{random.randint(100000, 999999)}"
-            st.toast(f"🚨 **{cam_id} LIVE ALERT:** Critical gridlock detected at {loc}. CIS: {cis:.1f}. Tow dispatch requested.", icon='🚨')
+            # st.toast(f"🚨 **{cam_id} LIVE ALERT:** Critical gridlock detected at {loc}. CIS: {cis:.1f}. Tow dispatch requested.", icon='🚨')
 
 global_threat_monitor()
 
@@ -537,33 +549,51 @@ elif page == "🎥 City-Wide CCTV Network":
     except Exception:
         pass  # Backend offline — no crash
 
-    # Fetch current state for the status badge
-    try:
-        state = req.get(f"{API_BASE}/api/device-state", timeout=1).json()
-        current_mode = state.get("mode", "CCTV")
-        alert_level  = state.get("alert_level", "VACANT")
-    except Exception:
-        current_mode = "CCTV"
-        alert_level  = "VACANT"
+    @st.fragment(run_every=2)
+    def render_hardware_badge():
+        # Fetch current state for the status badge
+        try:
+            state = req.get(f"{API_BASE}/api/device-state", timeout=1).json()
+            current_mode = state.get("mode", "CCTV")
+            alert_level  = state.get("alert_level", "VACANT")
+        except Exception:
+            current_mode = "CCTV"
+            alert_level  = "VACANT"
 
-    level_colors = {"CRITICAL": "#ff4b4b", "HIGH": "#ff4b4b", "MEDIUM": "#ffa500", "VACANT": "#00c800", "LOW": "#00c800"}
-    level_color  = level_colors.get(alert_level, "#888888")
+        level_cfg = {
+            "VACANT":   {"color": "#555",    "bg": "#22222233", "label": "⚫ NO VIOLATION",   "dot": "#555",    "blink": False},
+            "LOW":      {"color": "#00c800", "bg": "#00c80022", "label": "🟢 LOW",            "dot": "#00c800", "blink": False},
+            "MEDIUM":   {"color": "#f5c200", "bg": "#f5c20022", "label": "🟡 MEDIUM",         "dot": "#f5c200", "blink": False},
+            "HIGH":     {"color": "#ff4b4b", "bg": "#ff4b4b22", "label": "🔴 HIGH",           "dot": "#ff4b4b", "blink": False},
+            "CRITICAL": {"color": "#ff1111", "bg": "#ff111122", "label": "🚨 CRITICAL",       "dot": "#ff1111", "blink": True },
+        }
+        cfg = level_cfg.get(alert_level, level_cfg["VACANT"])
+        dot_class = "led-blink" if cfg["blink"] else ""
+        dot_style = (
+            f"width:14px;height:14px;border-radius:50%;background:{cfg['dot']};"
+            f"display:inline-block;margin-right:6px;"
+            + (f"box-shadow:0 0 8px {cfg['dot']};" if not cfg["blink"] and alert_level != "VACANT" else "")
+        )
 
-    st.markdown(f"""
-    <div style="display:flex;align-items:center;gap:16px;padding:10px 18px;
-                border-radius:10px;background:#1a1a2e;margin-bottom:12px;border:1px solid #333;">
-        <span style="font-size:1rem;font-weight:700;color:#fff;">🖥️ ESP32 Hardware Node</span>
-        <span style="background:#00c8ff22;color:#00c8ff;border:1px solid #00c8ff;
-                    padding:3px 12px;border-radius:20px;font-size:0.82rem;font-weight:700;">
-            📷 MODE: CCTV — Cameras Active
-        </span>
-        <span style="background:{level_color}22;color:{level_color};border:1px solid {level_color};
-                    padding:3px 12px;border-radius:20px;font-size:0.82rem;font-weight:700;">
-            ALERT: {alert_level}
-        </span>
-        <span style="color:#888;font-size:0.78rem;">HC-SR04 sensor disabled</span>
-    </div>
-    """, unsafe_allow_html=True)
+        st.markdown(f"""
+        <div style="display:flex;align-items:center;gap:16px;padding:10px 18px;
+                    border-radius:10px;background:#1a1a2e;margin-bottom:12px;border:1px solid #333;">
+            <span style="font-size:1rem;font-weight:700;color:#fff;">🖥️ ESP32 Hardware Node</span>
+            <span style="background:#00c8ff22;color:#00c8ff;border:1px solid #00c8ff;
+                        padding:3px 12px;border-radius:20px;font-size:0.82rem;font-weight:700;">
+                📷 MODE: CCTV — Cameras Active
+            </span>
+            <span style="background:{cfg['bg']};color:{cfg['color']};border:1px solid {cfg['color']};
+                        padding:3px 12px;border-radius:20px;font-size:0.82rem;font-weight:700;
+                        display:inline-flex;align-items:center;">
+                <span class="{dot_class}" style="{dot_style}"></span>
+                ALERT: {cfg['label']}
+            </span>
+            <span style="color:#888;font-size:0.78rem;">HC-SR04 sensor disabled</span>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    render_hardware_badge()
 
     st.markdown("---")
     
@@ -578,18 +608,56 @@ elif page == "🎥 City-Wide CCTV Network":
         
         st.success(f"Video uploaded successfully!")
         
-        bc1, bc2 = st.columns(2)
+        bc1, bc2, bc3 = st.columns(3)
         with bc1:
             if st.button("🛠️ 1. Calibrate Zones", use_container_width=True):
                 import subprocess
                 subprocess.Popen(["python", "src/cctv_detector.py", "--source", video_path, "--calibrate"])
                 st.info("Check your taskbar! A calibration window has opened. Click your zones and press ENTER. Your zones will be auto-saved!")
         with bc2:
-            if st.button("🚀 2. Start Live Detection", type="primary", use_container_width=True):
-                import subprocess
-                # Run headless detector
-                subprocess.Popen(["python", "src/cctv_detector.py", "--source", video_path])
-                st.success("Detector started! Scroll down to see the Live Feed and Telemetry.")
+            detector_running = (
+                "detector_proc" in st.session_state
+                and st.session_state["detector_proc"] is not None
+                and st.session_state["detector_proc"].poll() is None
+            )
+            if not detector_running:
+                if st.button("🚀 2. Start Live Detection", type="primary", use_container_width=True):
+                    import subprocess
+                    proc = subprocess.Popen(["python", "src/cctv_detector.py", "--source", video_path])
+                    st.session_state["detector_proc"] = proc
+                    st.success("Detector started! Scroll down to see the Live Feed and Telemetry.")
+                    st.rerun()
+            else:
+                st.success("🟢 Detector is running...")
+        with bc3:
+            if detector_running:
+                if st.button("⏹️ Stop Stream", type="secondary", use_container_width=True):
+                    import psutil, os, signal
+                    proc = st.session_state["detector_proc"]
+                    try:
+                        # Kill entire process tree (YOLO + OpenCV children)
+                        parent = psutil.Process(proc.pid)
+                        for child in parent.children(recursive=True):
+                            child.kill()
+                        parent.kill()
+                    except Exception:
+                        try:
+                            proc.terminate()
+                        except Exception:
+                            pass
+                    st.session_state["detector_proc"] = None
+                    
+                    # Force hardware state reset on manual stop
+                    try:
+                        import requests
+                        requests.post("http://127.0.0.1:8000/api/set-buzzer", 
+                                      json={"active": False, "zone_id": "", "level": "VACANT"}, 
+                                      timeout=2.0)
+                    except Exception:
+                        pass
+                        
+                    st.warning("Detector stopped. Hardware LEDs reset.")
+                    st.rerun()
 
     st.markdown("---")
 
@@ -643,17 +711,25 @@ elif page == "🎥 City-Wide CCTV Network":
 
     @st.fragment(run_every=3)
     def cctv_live():
+        # Auto-refresh UI if the detector finished naturally (e.g. video ended)
+        if "detector_proc" in st.session_state and st.session_state["detector_proc"] is not None:
+            if st.session_state["detector_proc"].poll() is not None:
+                st.session_state["detector_proc"] = None
+                st.rerun()
+
         try:
             stats = req.get(f"{API_BASE}/api/cctv-events/stats", timeout=2).json()
         except Exception:
             st.warning("Backend not reachable. Start `python src/backend_api.py`")
             return
 
+
         # ── KPIs — LIVE (90-second rolling window) ────────────────────────────
         all_time = stats.get("all_time_violations", 0)
         live_v   = stats.get("total_violations", 0)
         live_h   = stats.get("high_priority", 0)
         live_m   = stats.get("medium_priority", 0)
+        live_l   = stats.get("low_priority", 0)
         live_a   = stats.get("active_vehicles", 0)
 
         st.markdown(
@@ -662,15 +738,17 @@ elif page == "🎥 City-Wide CCTV Network":
             f"All-time total violations: <b>{all_time}</b></p>",
             unsafe_allow_html=True
         )
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("🚨 Live Violations",  live_v,  delta="active now" if live_v > 0 else "clear",
                   delta_color="inverse" if live_v > 0 else "off")
         c2.metric("🔴 High Priority",    live_h,  delta="tow needed" if live_h > 0 else "none",
                   delta_color="inverse" if live_h > 0 else "off")
-        c3.metric("🚗 Active Vehicles",  live_a,  delta="in zones" if live_a > 0 else "clear",
-                  delta_color="inverse" if live_a > 0 else "off")
-        c4.metric("🟠 Medium Priority",  live_m,  delta="dispatch" if live_m > 0 else "none",
+        c3.metric("🟠 Medium Priority",  live_m,  delta="dispatch" if live_m > 0 else "none",
                   delta_color="inverse" if live_m > 0 else "off")
+        c4.metric("🟢 Low Priority",     live_l,  delta="warning" if live_l > 0 else "none",
+                  delta_color="inverse" if live_l > 0 else "off")
+        c5.metric("🚗 Active Vehicles",  live_a,  delta="in zones" if live_a > 0 else "clear",
+                  delta_color="inverse" if live_a > 0 else "off")
 
         st.markdown("---")
         col1, col2 = st.columns([2, 1])
@@ -705,13 +783,19 @@ elif page == "🎥 City-Wide CCTV Network":
         with col1:
             st.markdown("### 🔍 Live Detection Events")
             try:
-                events = req.get(f"{API_BASE}/api/cctv-events/recent?limit=30", timeout=2).json()
+                # Fetch more events to allow deduplication across multiple tracks
+                events = req.get(f"{API_BASE}/api/cctv-events/recent?limit=200", timeout=2).json()
                 if not events:
                     st.info("No CCTV events yet. Run: `python src/cctv_detector.py --no-show`")
                     return
 
                 import pandas as pd
                 df = pd.DataFrame(events)
+                
+                # Keep only the latest event for each track_id so the duration updates in a single row
+                df = df.sort_values("timestamp", ascending=False).drop_duplicates(subset=["track_id"], keep="first")
+                df = df.head(30)
+                
                 df["time"] = pd.to_datetime(df["timestamp"], unit="s").dt.strftime("%H:%M:%S")
 
                 def row_style(row):
@@ -731,11 +815,3 @@ elif page == "🎥 City-Wide CCTV Network":
                 st.error(f"Error fetching events: {e}")
 
     cctv_live()
-
-    st.markdown("---")
-    st.markdown("### 🚀 How to Start the Headless Detector")
-    st.code("""# Run entirely in the background (no separate popup window!)
-python src/cctv_detector.py --no-show
-
-# RTSP Camera stream (production)
-python src/cctv_detector.py --source rtsp://192.168.1.100:554/stream""", language="bash")

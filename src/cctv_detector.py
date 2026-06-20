@@ -43,7 +43,7 @@ CAMERA_LON       = 77.5946
 # Install "IP Webcam" from Play Store, tap "Start Server"
 # Replace the IPs below with what the app shows on your phone screens
 PHONE_CAMERA_1_URL = "http://192.168.29.247:8080/video"   # ← CAM 1 IP
-PHONE_CAMERA_2_URL = "http://192.168.29.41:8080/video"   # ← CAM 2 IP
+PHONE_CAMERA_2_URL = "http://192.168.29.131:8080/video"   # ← CAM 2 IP
 
 MODEL_WEIGHTS    = "yolov8n.pt"          # auto-downloads on first run (~6MB)
 CONF_THRESHOLD   = 0.15                  # lowered to catch blurry bikes/scooters
@@ -174,6 +174,7 @@ def update_hardware_leds(active_track_ids, track_entry_time, track_vehicle_type,
             if p == "CRITICAL": highest_priority = "CRITICAL"
             elif p == "HIGH" and highest_priority != "CRITICAL": highest_priority = "HIGH"
             elif p == "MEDIUM" and highest_priority not in ["CRITICAL", "HIGH"]: highest_priority = "MEDIUM"
+            elif p == "LOW" and highest_priority == "VACANT": highest_priority = "LOW"
                 
     try:
         r = requests.post(SET_BUZZER_URL, json={"active": highest_priority == "CRITICAL", "zone_id": "", "level": highest_priority}, timeout=2.0)
@@ -217,26 +218,35 @@ def compute_cis(vehicle_type: str, dwell_seconds: float, zone_id: str,
     time_multiplier = 1.0   # Normal daytime default
 
     if cam_type == "commercial":
-        # IT Parks / Offices: 8-10 AM, 5-8 PM
+        # Rush Hour: 8-10 AM, 5-8 PM
         if current_hour in [8, 9, 10, 17, 18, 19]:
             time_multiplier = 1.3
-        elif current_hour >= 22 or current_hour <= 6:
+        # Off-peak daytime: 11 AM - 4 PM
+        elif current_hour in [11, 12, 13, 14, 15, 16]:
             time_multiplier = 0.5
+        # Night time: 8 PM - 7 AM
+        else:
+            time_multiplier = 0.3
     elif cam_type == "school":
-        # Schools: 7-9 AM, 2-4 PM
+        # School Rush: 7-9 AM, 2-4 PM
         if current_hour in [7, 8, 14, 15]:
             time_multiplier = 1.4
-        elif current_hour >= 18 or current_hour <= 6:
-            time_multiplier = 0.4
+        # Off-peak daytime
+        elif current_hour in [9, 10, 11, 12, 13]:
+            time_multiplier = 0.5
+        # Evening/Night
+        else:
+            time_multiplier = 0.3
             
     final_cis = int((base + zone_penalty + lane_penalty) * time_multiplier)
     return min(final_cis, 100)
 
 
 def priority_label(cis: int) -> str:
-    if cis > 70: return "HIGH"
-    if cis > 40: return "MEDIUM"
-    return "LOW"
+    if cis >= 80: return "CRITICAL"   # Red  — severe obstruction
+    if cis >= 55: return "HIGH"       # Red  — significant obstruction
+    if cis >= 35: return "MEDIUM"     # Yellow — moderate risk
+    return "LOW"                      # Green — minimal risk
 
 
 # ─────────────────────────────────────────────
@@ -287,9 +297,10 @@ def send_event(track_id, vehicle_type, zone_id, event_type, dwell_sec, cis, prio
 # DRAWING HELPERS
 # ─────────────────────────────────────────────
 COLOUR_MAP = {
-    "LOW":    (0, 255, 0),      # green
-    "MEDIUM": (0, 165, 255),    # orange
-    "HIGH":   (0, 0, 255),      # red
+    "LOW":      (50, 220, 50),    # green  — minimal risk
+    "MEDIUM":   (0, 230, 230),   # yellow — moderate risk  (BGR: yellow = 0,255,255)
+    "HIGH":     (0, 80, 255),    # red-orange — significant
+    "CRITICAL": (0, 0, 230),     # bright red — severe
 }
 
 def draw_zones(frame):
@@ -348,7 +359,7 @@ def run(source=0, show=True):
     last_telemetry       = defaultdict(float)  # track_id → last telemetry time
     pending_exit         = defaultdict(int)    # track_id → consecutive out-of-zone frame count
 
-    EXIT_GRACE_FRAMES = 30  # must be outside zone for this many frames to confirm exit (prevents jitter resets)
+    EXIT_GRACE_FRAMES = 15  # must be outside zone for this many frames to confirm exit (prevents jitter resets)
     STATIONARY_SEC    = 5.0 # ignore passing cars until they dwell for this long
 
     # Ghost-track resurrection: when tracker drops a stationary car for a frame
@@ -356,7 +367,7 @@ def run(source=0, show=True):
     ghost_tracks         = {}   # track_id → {cx, cy, box, zone_id, entry_time, violation_sent, vtype, locked}
     track_last_pos       = {}   # track_id → (cx, cy) — updated every frame for ghost position
     track_last_box       = {}   # track_id → [x1, y1, x2, y2]
-    GHOST_TTL            = 6.0  # seconds to keep ghost before truly considering it gone (handles long occlusions)
+    GHOST_TTL            = 3.0  # seconds to keep ghost before truly considering it gone (handles short occlusions)
     GHOST_DIST_PX        = 300  # max centroid distance to match a ghost (handles large centroid shifts for buses)
 
     VOTE_WINDOW  = 10   # keep last N votes per track
@@ -585,19 +596,10 @@ def run(source=0, show=True):
                             del track_entry_time[track_id]
                             pending_exit[track_id] = 0
                         else:
-                            # Still in grace period. Maintain its visual violation state!
+                            # Still in grace period. Draw it as grey since it's physically out of the zone.
                             if show:
-                                dwell_sec = now - track_entry_time[track_id]
-                                if dwell_sec >= STATIONARY_SEC:
-                                    frame_w = frame.shape[1]
-                                    cis = compute_cis(vehicle_type, dwell_sec, track_zone[track_id], bbox_width=(x2 - x1), frame_width=frame_w)
-                                    priority = priority_label(cis)
-                                    colour = COLOUR_MAP[priority]
-                                    label = f"#{track_id} {vehicle_type} | {track_zone[track_id]} | CIS:{cis} [{priority}] {int(dwell_sec)}s"
-                                    draw_vehicle(frame, x1, y1, x2, y2, label, colour)
-                                else:
-                                    label = f"#{track_id} {vehicle_type}"
-                                    draw_vehicle(frame, x1, y1, x2, y2, label, (180, 180, 180))
+                                label = f"#{track_id} {vehicle_type}"
+                                draw_vehicle(frame, x1, y1, x2, y2, label, (180, 180, 180))
                             continue # skip drawing the default grey box below
 
                     if show:
@@ -661,6 +663,33 @@ def run(source=0, show=True):
     cap.release()
     if show:
         cv2.destroyAllWindows()
+    
+    # ── Clean up hardware state when stream ends ──
+    print("[ParkIQ] Stream ended. Clearing all active tracks.")
+    now = time.time()
+    
+    # Send VACATED for all active tracks
+    for tid, etime in track_entry_time.items():
+        if tid in track_occupancy_sent:
+            dwell_sec = now - etime
+            vt = track_vehicle_type.get(tid, "vehicle")
+            cis = compute_cis(vt, dwell_sec, track_zone[tid])
+            send_event(tid, vt, track_zone[tid], "VACATED", dwell_sec, cis, priority_label(cis))
+            
+    # Send VACATED for all ghost tracks
+    for g_id, g in ghost_tracks.items():
+        if g.get("occupancy_sent", False):
+            dwell_sec = now - g["entry_time"]
+            cis = compute_cis(g["vtype"], dwell_sec, g["zone_id"])
+            send_event(g_id, g["vtype"], g["zone_id"], "VACATED", dwell_sec, cis, priority_label(cis))
+
+    print("[ParkIQ] Resetting hardware LEDs to VACANT.")
+    try:
+        import requests
+        requests.post(SET_BUZZER_URL, json={"active": False, "zone_id": "", "level": "VACANT"}, timeout=2.0)
+    except Exception:
+        pass
+
     print("[ParkIQ] Detector stopped.")
 
 

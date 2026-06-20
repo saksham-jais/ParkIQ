@@ -1,4 +1,3 @@
-
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
@@ -29,7 +28,10 @@ const int BUZZER_PIN = 14;
 const char* ZONE_IDS[NUM_SENSORS] = {"Zone-1"};
 
 // ---------- THRESHOLDS ----------
-const float OCCUPIED_DISTANCE_CM       = 80.0;
+const float DIST_DETECT_CM  = 80.0;  // max range to consider object present
+const float DIST_FAR_CM     = 60.0;  // far   -> Green  (just detected)
+const float DIST_MED_CM     = 35.0;  // medium -> Yellow (getting closer)
+const float DIST_CLOSE_CM   = 15.0;  // close  -> Red + Buzzer (very close)
 const int   DEBOUNCE_READINGS          = 5;
 const unsigned long VIOLATION_THRESHOLD_MS = 10000;
 
@@ -45,6 +47,27 @@ void setLed(bool r, bool g, bool y) {
   digitalWrite(LED_RED, r); 
   digitalWrite(LED_GREEN, g); 
   digitalWrite(LED_YELLOW, y);
+}
+
+// ---------- DISTANCE-BASED LED (IoT mode) ----------
+// OFF       = no object detected
+// Green     = object far (> DIST_FAR_CM)
+// Yellow    = object medium distance (DIST_MED..DIST_FAR)
+// Red+Buzz  = object very close (< DIST_CLOSE_CM)
+void updateIoTLed(float distance) {
+  if (distance <= 0 || distance > DIST_DETECT_CM) {
+    setLed(0, 0, 0);            // No object - all OFF
+    digitalWrite(BUZZER_PIN, LOW);
+  } else if (distance > DIST_FAR_CM) {
+    setLed(0, 1, 0);            // Far - Green
+    digitalWrite(BUZZER_PIN, LOW);
+  } else if (distance > DIST_CLOSE_CM) {
+    setLed(0, 0, 1);            // Medium - Yellow
+    digitalWrite(BUZZER_PIN, LOW);
+  } else {
+    setLed(1, 0, 0);            // Very close - Red + Buzzer!
+    digitalWrite(BUZZER_PIN, HIGH);
+  }
 }
 
 // ---------- SENSOR READ (sequential, never simultaneous) ----------
@@ -95,7 +118,7 @@ void sendEvent(int idx, const char* eventType, unsigned long durationSec, float 
 void updateZone(int idx) {
   float distance  = readDistanceCm(idx);
   lastDistance[idx] = distance;
-  bool occupiedNow = (distance > 0 && distance < OCCUPIED_DISTANCE_CM);
+  bool occupiedNow = (distance > 0 && distance < DIST_DETECT_CM);
 
   if (occupiedNow) { belowCount[idx]++; aboveCount[idx] = 0; }
   else             { aboveCount[idx]++; belowCount[idx] = 0; }
@@ -103,7 +126,7 @@ void updateZone(int idx) {
   switch (zoneState[idx]) {
 
     case VACANT:
-      setLed(0, 1, 0); // Green
+      updateIoTLed(distance);   // OFF if no object, green if far
       if (belowCount[idx] >= DEBOUNCE_READINGS) {
         zoneState[idx]    = OCCUPIED;
         occupiedSince[idx] = millis();
@@ -113,17 +136,17 @@ void updateZone(int idx) {
       break;
 
     case OCCUPIED: {
-      setLed(0, 0, 1); // Yellow
+      updateIoTLed(distance);   // Green/Yellow/Red based on proximity
       unsigned long elapsed = millis() - occupiedSince[idx];
 
       if (aboveCount[idx] >= DEBOUNCE_READINGS) {
         zoneState[idx] = VACANT;
+        setLed(0, 0, 0);        // Object left — all OFF
+        digitalWrite(BUZZER_PIN, LOW);
         Serial.printf("[Zone %s] -> VACANT\n", ZONE_IDS[idx]);
         sendEvent(idx, "VACATED", elapsed / 1000, distance);
       } else if (elapsed > VIOLATION_THRESHOLD_MS) {
         zoneState[idx] = VIOLATION;
-        setLed(1, 0, 0); // Red
-        digitalWrite(BUZZER_PIN, HIGH);
         Serial.printf("[Zone %s] -> VIOLATION\n", ZONE_IDS[idx]);
         sendEvent(idx, "VIOLATION_CONFIRMED", elapsed / 1000, distance);
       }
@@ -131,14 +154,13 @@ void updateZone(int idx) {
     }
 
     case VIOLATION: {
-      // Solid Red
-      setLed(1, 0, 0);
+      updateIoTLed(distance);   // Still distance-based even in violation
       unsigned long elapsed = millis() - occupiedSince[idx];
 
       if (aboveCount[idx] >= DEBOUNCE_READINGS) {
         zoneState[idx] = VACANT;
+        setLed(0, 0, 0);        // Cleared — all OFF
         digitalWrite(BUZZER_PIN, LOW);
-        setLed(0, 1, 0); // Green
         Serial.printf("[Zone %s] -> VACANT (cleared)\n", ZONE_IDS[idx]);
         sendEvent(idx, "VACATED", elapsed / 1000, distance);
       } else if (millis() - lastHeartbeat[idx] > 30000) {
@@ -177,11 +199,11 @@ void setup() {
   Serial.printf("\nConnected! IP: %s\n", WiFi.localIP().toString().c_str());
   configTime(5 * 3600 + 1800, 0, "pool.ntp.org"); // IST
   
-  setLed(0, 1, 0); // Start green
+  setLed(0, 0, 0); // Start with all LEDs OFF
 }
 
 // ---------- DEVICE STATE POLLING ----------
-String activeMode = "IOT";
+String activeMode = "CCTV";           // Default to CCTV — updated by fetchDeviceState()
 String cctvAlertLevel = "VACANT";  // VACANT / MEDIUM / HIGH / CRITICAL
 
 void fetchDeviceState() {
@@ -212,8 +234,9 @@ void loop() {
   if (activeMode == "CCTV") {
     // 🎥 CCTV MODE: 4-level alert driven by AI CIS score
     if (cctvAlertLevel == "CRITICAL") {
-      // 🔴 Solid Red + Buzzer — Immediate tow required!
-      setLed(1, 0, 0);
+      // 🚨 Blinking Red + Buzzer — Immediate tow required!
+      bool ledOn = (millis() / 300) % 2 == 0;  // toggle every 300ms
+      setLed(ledOn, 0, 0);
       digitalWrite(BUZZER_PIN, HIGH);
     } else if (cctvAlertLevel == "HIGH") {
       // 🔴 Solid Red, No Buzzer — High severity violation
@@ -223,9 +246,13 @@ void loop() {
       // 🟡 Solid Yellow — Violation detected, monitoring
       setLed(0, 0, 1);
       digitalWrite(BUZZER_PIN, LOW);
-    } else {
-      // 🟢 Solid Green — No violation / zone vacant
+    } else if (cctvAlertLevel == "LOW") {
+      // 🟢 Solid Green — Minor violation, low risk
       setLed(0, 1, 0);
+      digitalWrite(BUZZER_PIN, LOW);
+    } else {
+      // ⚫ VACANT — No violation, all LEDs OFF
+      setLed(0, 0, 0);
       digitalWrite(BUZZER_PIN, LOW);
     }
   } else {
