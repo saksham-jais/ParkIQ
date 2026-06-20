@@ -934,9 +934,7 @@ async function sendPoints() {{
 </div>"""
                 if is_running and os.path.exists(frame_path):
                     try:
-                        st.html(f'<div style="border:2px solid #444; border-radius:10px; overflow:hidden; height:340px; background:#000;">')
                         st.image(frame_path, width="stretch")
-                        st.html("</div>")
                     except OSError:
                         pass  # File mid-write, skip this tick
                 else:
@@ -963,9 +961,7 @@ async function sendPoints() {{
 </div>"""
                 if is_running and os.path.exists(frame_path):
                     try:
-                        st.html(f'<div style="border:2px solid #444; border-radius:10px; overflow:hidden; height:340px; background:#000;">')
                         st.image(frame_path, width="stretch")
-                        st.html("</div>")
                     except OSError:
                         pass  # File mid-write, skip this tick
                 else:
