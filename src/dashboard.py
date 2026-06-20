@@ -493,11 +493,21 @@ elif page == "📡 IoT Sensor Monitor":
     @st.fragment(run_every=2)
     def auto_update_table():
         try:
-            stats = requests.get(f"{API_BASE}/api/sensor-events/stats", timeout=2).json()
-            events = requests.get(f"{API_BASE}/api/sensor-events/recent?limit=50", timeout=2).json()
+            stats_resp = requests.get(f"{API_BASE}/api/sensor-events/stats", timeout=2)
+            events_resp = requests.get(f"{API_BASE}/api/sensor-events/recent?limit=50", timeout=2)
+            
+            if stats_resp.status_code != 200 or events_resp.status_code != 200:
+                st.warning("⚠️ Backend API endpoints not available. Please redeploy the API.")
+                return
+                
+            stats = stats_resp.json()
+            events = events_resp.json()
         except Exception:
             st.warning("Backend API is unreachable. Please run python src/backend_api.py locally or ensure the remote server is up.")
             return
+
+        if not isinstance(events, list):
+            events = []
 
         events_df = pd.DataFrame(events)
         total_events = stats.get("total_events", 0)
