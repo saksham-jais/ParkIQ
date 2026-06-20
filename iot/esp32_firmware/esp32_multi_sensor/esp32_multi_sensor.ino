@@ -6,7 +6,8 @@
 // ---------- CONFIG ----------
 const char* WIFI_SSID     = "Ishani";
 const char* WIFI_PASSWORD = "07186556";
-const char* SERVER_URL    = "http://192.168.29.219:8000/api/sensor-event";
+const char* LOCAL_URL     = "http://192.168.29.219:8000";
+const char* CLOUD_URL     = "https://parkiq-glrk.onrender.com";
 const char* DEVICE_ID     = "ESP32-NODE-01";
 
 // ---------- SENSOR COUNT ----------
@@ -86,16 +87,24 @@ float readDistanceCm(int idx) {
   return duration * 0.0343 / 2.0;
 }
 
-// ---------- HTTP POST ----------
+void sendEventToUrl(String url, String payload, int idx) {
+  HTTPClient http;
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
+  int code = http.POST(payload);
+  if(code > 0) {
+    Serial.printf("[Zone %s] HTTP %d (URL: %s)\n", ZONE_IDS[idx], code, url.c_str());
+  } else {
+    Serial.printf("[Zone %s] HTTP Error %d (URL: %s)\n", ZONE_IDS[idx], code, url.c_str());
+  }
+  http.end();
+}
+
 void sendEvent(int idx, const char* eventType, unsigned long durationSec, float distanceCm) {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.printf("[Zone %s] WiFi not connected. Skipping send.\n", ZONE_IDS[idx]);
     return;
   }
-
-  HTTPClient http;
-  http.begin(SERVER_URL);
-  http.addHeader("Content-Type", "application/json");
 
   StaticJsonDocument<256> doc;
   doc["device_id"]    = DEVICE_ID;
@@ -109,9 +118,9 @@ void sendEvent(int idx, const char* eventType, unsigned long durationSec, float 
   serializeJson(doc, payload);
   Serial.printf("[Zone %s] %s -> %s\n", ZONE_IDS[idx], eventType, payload.c_str());
 
-  int code = http.POST(payload);
-  Serial.printf("[Zone %s] HTTP %d\n", ZONE_IDS[idx], code);
-  http.end();
+  // Send to BOTH local and cloud servers
+  sendEventToUrl(String(LOCAL_URL) + "/api/sensor-event", payload, idx);
+  sendEventToUrl(String(CLOUD_URL) + "/api/sensor-event", payload, idx);
 }
 
 // ---------- UPDATE ONE ZONE ----------
@@ -209,8 +218,16 @@ String cctvAlertLevel = "VACANT";  // VACANT / MEDIUM / HIGH / CRITICAL
 void fetchDeviceState() {
   if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
-    http.begin("http://192.168.29.219:8000/api/device-state");
+    // Try Cloud first
+    http.begin(String(CLOUD_URL) + "/api/device-state");
     int code = http.GET();
+    if (code <= 0) {
+      http.end();
+      // Fallback to local
+      http.begin(String(LOCAL_URL) + "/api/device-state");
+      code = http.GET();
+    }
+
     if (code > 0) {
       String payload = http.getString();
       StaticJsonDocument<256> doc;
