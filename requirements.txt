@@ -10,3 +10,4 @@ opencv-python-headless
 streamlit-image-coordinates
 Pillow
 ultralytics
+lapx
