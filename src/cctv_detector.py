@@ -370,10 +370,34 @@ def run(source=0, show=True):
     LOCK_VOTES   = 6    # need this many votes for one class to lock
 
     frame_idx = 0
+    last_calib_mtime = 0
     print(f"[ParkIQ] Starting detection on source: {source}")
     print(f"[ParkIQ] Violation threshold: {VIOLATION_SEC}s | Server: {BASE_API_URL}")
 
     while True:
+        # ── Dynamic calibration reload ──
+        try:
+            if os.path.exists("data/calibration.json"):
+                mtime = os.path.getmtime("data/calibration.json")
+                if mtime > last_calib_mtime:
+                    last_calib_mtime = mtime
+                    import json
+                    with open("data/calibration.json", "r") as f:
+                        calib = json.load(f)
+                        for cam, data in calib.items():
+                            if cam not in ROAD_CONFIG:
+                                ROAD_CONFIG[cam] = {"zones": {}}
+                            else:
+                                ROAD_CONFIG[cam]["zones"] = {}
+                            for z_id, z_data in data.get("zones", {}).items():
+                                ROAD_CONFIG[cam]["zones"][z_id] = {
+                                    "road_width_px": z_data["road_width_px"],
+                                    "polygon": np.array(z_data["polygon"], dtype=np.int32)
+                                }
+                    print("[ParkIQ] \U0001f504 Live-reloaded calibration config from disk!")
+        except Exception:
+            pass
+
         ret, frame = cap.read()
         if not ret:
             print("[ParkIQ] Stream ended.")
@@ -392,8 +416,7 @@ def run(source=0, show=True):
             verbose=False,
         )
 
-        if show:
-            draw_zones(frame)
+        draw_zones(frame)
 
         now = time.time()
         active_track_ids = set()
@@ -565,14 +588,12 @@ def run(source=0, show=True):
                                        "TELEMETRY_UPDATE", dwell_sec, cis, priority)
                             last_telemetry[track_id] = now
 
-                        if show:
-                            colour = COLOUR_MAP[priority]
-                            label = f"#{track_id} {vehicle_type} | {zone_id} | CIS:{cis} [{priority}] {int(dwell_sec)}s"
-                            draw_vehicle(frame, x1, y1, x2, y2, label, colour)
+                        colour = COLOUR_MAP[priority]
+                        label = f"#{track_id} {vehicle_type} | {zone_id} | CIS:{cis} [{priority}] {int(dwell_sec)}s"
+                        draw_vehicle(frame, x1, y1, x2, y2, label, colour)
                     else:
-                        if show:
-                            label = f"#{track_id} {vehicle_type}"
-                            draw_vehicle(frame, x1, y1, x2, y2, label, (180, 180, 180))
+                        label = f"#{track_id} {vehicle_type}"
+                        draw_vehicle(frame, x1, y1, x2, y2, label, (180, 180, 180))
                 else:
                     if track_id in track_zone:
                         # Increment grace counter — must be out of zone for EXIT_GRACE_FRAMES
@@ -593,18 +614,13 @@ def run(source=0, show=True):
                             pending_exit[track_id] = 0
                         else:
                             # Still in grace period. Draw it as grey since it's physically out of the zone.
-                            if show:
-                                label = f"#{track_id} {vehicle_type}"
-                                draw_vehicle(frame, x1, y1, x2, y2, label, (180, 180, 180))
+                            label = f"#{track_id} {vehicle_type}"
+                            draw_vehicle(frame, x1, y1, x2, y2, label, (180, 180, 180))
                             continue # skip drawing the default grey box below
 
-                    if show:
-                        label = f"#{track_id} {vehicle_type}"
-                        draw_vehicle(frame, x1, y1, x2, y2, label, (180, 180, 180))
+                    label = f"#{track_id} {vehicle_type}"
+                    draw_vehicle(frame, x1, y1, x2, y2, label, (180, 180, 180))
 
-        # Write the fully-annotated frame once per processed loop tick.
-        # Skipped frames are not written — last good frame stays on disk.
-        cv2.imwrite(f"data/current_frame_{DEVICE_ID}.jpg", frame)
 
         # ── Ghost expiry & lost-track cleanup ───────────────────────────────
         lost = set(track_zone.keys()) - active_track_ids
@@ -647,10 +663,17 @@ def run(source=0, show=True):
                 if g.get("occupancy_sent", False):
                     print(f"[GHOST] Track#{g_id} expired after {dwell_sec:.1f}s — VACATED sent")
 
+        ts = datetime.datetime.now().strftime("%H:%M:%S")
+        cv2.putText(frame, f"ParkIQ CCTV | {ts} | Active: {len(active_track_ids)}",
+                    (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+        cv2.putText(frame, f"Camera: {DEVICE_ID}", 
+                    (10, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+
+        # Write the fully-annotated frame once per processed loop tick.
+        # Skipped frames are not written — last good frame stays on disk.
+        cv2.imwrite(f"data/current_frame_{DEVICE_ID}.jpg", frame)
+
         if show:
-            ts = datetime.datetime.now().strftime("%H:%M:%S")
-            cv2.putText(frame, f"ParkIQ CCTV | {ts} | Active: {len(active_track_ids)}",
-                        (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
             cv2.imshow("ParkIQ — Illegal Parking Detector", frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 print("[ParkIQ] Quit by user.")

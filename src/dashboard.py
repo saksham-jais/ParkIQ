@@ -841,8 +841,17 @@ async function sendPoints() {{
         import os
         os.makedirs("data", exist_ok=True)
         video_path = "data/uploaded_video.mp4"
-        with open(video_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
+        
+        # Only overwrite the file if it's a new upload to prevent Windows lock OSErrors
+        file_id = getattr(uploaded_file, "file_id", f"{uploaded_file.name}_{uploaded_file.size}")
+        if st.session_state.get("last_uploaded_vid") != file_id:
+            try:
+                with open(video_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                st.session_state["last_uploaded_vid"] = file_id
+            except OSError:
+                pass # File is likely locked by the running detector, ignore
+
 
         st.success("Video uploaded! Calibrate your zones in the tool above, then start detection below.")
 
@@ -857,7 +866,7 @@ async function sendPoints() {{
             if not detector_running:
                 if st.button("🚀 Start Live Detection", type="primary", use_container_width=True):
                     import subprocess
-                    proc = subprocess.Popen(["python", "src/cctv_detector.py", "--source", video_path])
+                    proc = subprocess.Popen(["python", "src/cctv_detector.py", "--source", video_path, "--no-show"])
                     st.session_state["detector_proc"] = proc
                     st.success("Detector started! Scroll down to see the Live Feed and Telemetry.")
                     st.rerun()
@@ -899,7 +908,7 @@ async function sendPoints() {{
     with v1:
         st.markdown("**Node 1: CCTV-CAM-01**")
         st.markdown(
-            """
+            f"""
             <div style="border:2px solid #444;border-radius:10px;overflow:hidden;
                         background:#111;line-height:0;position:relative;min-height:250px;">
               <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:#888;">
@@ -910,14 +919,17 @@ async function sendPoints() {{
                    src="{API_BASE}/api/video_feed?cam_id=CCTV-CAM-01"
                    style="width:100%;display:block;position:relative;z-index:10;"
                    onload="this.style.display='block'"
-                   onerror="this.style.display='none'; let img=this; setTimeout(()=>{ img.src='{API_BASE}/api/video_feed?cam_id=CCTV-CAM-01&t='+Date.now() },2000)">
+                   onerror="this.style.display='none'; let img=this; setTimeout(()=>{{ img.src='{API_BASE}/api/video_feed?cam_id=CCTV-CAM-01&t='+Date.now() }},2000)">
+              <button onclick="let img = document.getElementById('feed-cam1'); if(img.style.display==='none'){{ alert('Wait for camera feed to connect.'); return; }} if(img.requestFullscreen){{ img.requestFullscreen().catch(err=>alert('Fullscreen error: '+err.message)); }} else if(img.webkitRequestFullscreen){{ img.webkitRequestFullscreen(); }}" 
+                      style="position:absolute;top:10px;right:10px;z-index:20;background:rgba(0,0,0,0.5);border:none;border-radius:6px;color:#fff;cursor:pointer;padding:6px 10px;font-size:16px;box-shadow:0 0 5px rgba(0,0,0,0.5);"
+                      title="Full Screen">⛶</button>
             </div>
             """, unsafe_allow_html=True
         )
     with v2:
         st.markdown("**Node 2: CCTV-CAM-02**")
         st.markdown(
-            """
+            f"""
             <div style="border:2px solid #444;border-radius:10px;overflow:hidden;
                         background:#111;line-height:0;position:relative;min-height:250px;">
               <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:#888;">
@@ -928,7 +940,10 @@ async function sendPoints() {{
                    src="{API_BASE}/api/video_feed?cam_id=CCTV-CAM-02"
                    style="width:100%;display:block;position:relative;z-index:10;"
                    onload="this.style.display='block'"
-                   onerror="this.style.display='none'; let img=this; setTimeout(()=>{ img.src='{API_BASE}/api/video_feed?cam_id=CCTV-CAM-02&t='+Date.now() },2000)">
+                   onerror="this.style.display='none'; let img=this; setTimeout(()=>{{ img.src='{API_BASE}/api/video_feed?cam_id=CCTV-CAM-02&t='+Date.now() }},2000)">
+              <button onclick="let img = document.getElementById('feed-cam2'); if(img.style.display==='none'){{ alert('Wait for camera feed to connect.'); return; }} if(img.requestFullscreen){{ img.requestFullscreen().catch(err=>alert('Fullscreen error: '+err.message)); }} else if(img.webkitRequestFullscreen){{ img.webkitRequestFullscreen(); }}" 
+                      style="position:absolute;top:10px;right:10px;z-index:20;background:rgba(0,0,0,0.5);border:none;border-radius:6px;color:#fff;cursor:pointer;padding:6px 10px;font-size:16px;box-shadow:0 0 5px rgba(0,0,0,0.5);"
+                      title="Full Screen">⛶</button>
             </div>
             """, unsafe_allow_html=True
         )
