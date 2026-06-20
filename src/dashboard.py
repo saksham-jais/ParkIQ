@@ -574,223 +574,266 @@ elif page == "🎥 City-Wide CCTV Network":
             f"display:inline-block;margin-right:6px;"
             + (f"box-shadow:0 0 8px {cfg['dot']};" if not cfg["blink"] and alert_level != "VACANT" else "")
         )
-        st.markdown(f"""
-        <div style="display:flex;align-items:center;gap:16px;padding:10px 18px;
-                    border-radius:10px;background:#1a1a2e;margin-bottom:12px;border:1px solid #333;">
-            <span style="font-size:1rem;font-weight:700;color:#fff;">🖥️ ESP32 Hardware Node</span>
-            <span style="background:#00c8ff22;color:#00c8ff;border:1px solid #00c8ff;
-                        padding:3px 12px;border-radius:20px;font-size:0.82rem;font-weight:700;">
-                📷 MODE: CCTV — Cameras Active
-            </span>
-            <span style="background:{cfg['bg']};color:{cfg['color']};border:1px solid {cfg['color']};
-                        padding:3px 12px;border-radius:20px;font-size:0.82rem;font-weight:700;
-                        display:inline-flex;align-items:center;">
-                <span class="{dot_class}" style="{dot_style}"></span>
-                ALERT: {cfg['label']}
-            </span>
-            <span style="color:#888;font-size:0.78rem;">HC-SR04 sensor disabled</span>
-        </div>
-        """, unsafe_allow_html=True)
+        # st.markdown(f"""
+        # <div style="display:flex;align-items:center;gap:16px;padding:10px 18px;
+        #             border-radius:10px;background:#1a1a2e;margin-bottom:12px;border:1px solid #333;">
+        #     <span style="font-size:1rem;font-weight:700;color:#fff;">🖥️ ESP32 Hardware Node</span>
+        #     <span style="background:#00c8ff22;color:#00c8ff;border:1px solid #00c8ff;
+        #                 padding:3px 12px;border-radius:20px;font-size:0.82rem;font-weight:700;">
+        #         📷 MODE: CCTV — Cameras Active
+        #     </span>
+        #     <span style="background:{cfg['bg']};color:{cfg['color']};border:1px solid {cfg['color']};
+        #                 padding:3px 12px;border-radius:20px;font-size:0.82rem;font-weight:700;
+        #                 display:inline-flex;align-items:center;">
+        #         <span class="{dot_class}" style="{dot_style}"></span>
+        #         ALERT: {cfg['label']}
+        #     </span>
+        #     <span style="color:#888;font-size:0.78rem;">HC-SR04 sensor disabled</span>
+        # </div>
+        # """, unsafe_allow_html=True)
 
     render_hardware_badge()
 
-    st.markdown("---")
+    # st.markdown("---")
 
-    # ══════════════════════════════════════════════════════════════════════
-    # IN-BROWSER ZONE CALIBRATION TOOL
-    # ══════════════════════════════════════════════════════════════════════
-    with st.expander("🛠️ Zone Calibration Tool — Click to Define No-Parking Zones", expanded=False):
-        st.caption("Upload a single frame/screenshot from your camera feed. Click on the image to mark zone boundaries. All calibration is saved automatically to `data/calibration.json`.")
+    @st.fragment
+    def calibration_tool():
+        import json, base64, io
+        from PIL import Image
+        import streamlit.components.v1 as components
 
-        from streamlit_image_coordinates import streamlit_image_coordinates
-        from PIL import Image, ImageDraw
-        import json, io
+        with st.expander("🛠️ Zone Calibration Tool — Click to Define No-Parking Zones", expanded=False):
+            st.caption("Upload a frame from your camera. Click directly on the image — lines draw **instantly**. Hit **Send to Streamlit** when done.")
 
-        cam_id_calib = st.selectbox("Camera to Calibrate", ["CCTV-CAM-01", "CCTV-CAM-02"], key="calib_cam")
-        frame_src = st.radio("Frame Source", ["Upload an image/screenshot", "Use first frame from uploaded video"], horizontal=True, key="frame_src")
+            cam_id_calib = st.selectbox("Camera to Calibrate", ["CCTV-CAM-01", "CCTV-CAM-02"], key="calib_cam")
+            frame_src = st.radio("Frame Source", ["Upload an image/screenshot", "Use first frame from uploaded video"], horizontal=True, key="frame_src")
 
-        calib_img = None
-        if frame_src == "Upload an image/screenshot":
-            img_file = st.file_uploader("Upload camera frame (JPG/PNG)", type=["jpg", "jpeg", "png"], key="calib_img_upload")
-            if img_file:
-                calib_img = Image.open(img_file).convert("RGB")
-        else:
-            # Extract first frame from uploaded video
-            video_path_calib = "data/uploaded_video.mp4"
-            if os.path.exists(video_path_calib):
-                import cv2 as _cv2
-                _cap = _cv2.VideoCapture(video_path_calib)
-                _ret, _frame = _cap.read()
-                _cap.release()
-                if _ret:
-                    calib_img = Image.fromarray(_cv2.cvtColor(_frame, _cv2.COLOR_BGR2RGB))
-                    st.success("✅ First frame extracted from uploaded video.")
-                else:
-                    st.warning("Could not read the uploaded video. Please upload the video first.")
+            calib_img = None
+            if frame_src == "Upload an image/screenshot":
+                img_file = st.file_uploader("Upload camera frame (JPG/PNG)", type=["jpg", "jpeg", "png"], key="calib_img_upload")
+                if img_file:
+                    calib_img = Image.open(img_file).convert("RGB")
             else:
-                st.info("No video uploaded yet. Upload a video above, or switch to image upload.")
-
-        if calib_img:
-            # ── Session state init ────────────────────────────────────────
-            if "calib_state" not in st.session_state or st.session_state.get("calib_cam_prev") != cam_id_calib:
-                st.session_state["calib_state"] = {
-                    "phase": "road",       # "road" or "zone"
-                    "road_pts": [],        # [left_pt, right_pt]
-                    "zone_pts": [],        # up to 4 points for current zone
-                    "saved_zones": [],     # list of {road_width_px, polygon}
-                }
-                st.session_state["calib_cam_prev"] = cam_id_calib
-
-            cs = st.session_state["calib_state"]
-
-            # ── Instructions ─────────────────────────────────────────────
-            if cs["phase"] == "road":
-                n = len(cs["road_pts"])
-                if n == 0:
-                    st.info("**Step 1 of 2 — Road Width:** Click the **LEFT edge** of the road/lane in the image below.")
+                video_path_calib = "data/uploaded_video.mp4"
+                if os.path.exists(video_path_calib):
+                    import cv2 as _cv2
+                    _cap = _cv2.VideoCapture(video_path_calib)
+                    _ret, _frame = _cap.read()
+                    _cap.release()
+                    if _ret:
+                        calib_img = Image.fromarray(_cv2.cvtColor(_frame, _cv2.COLOR_BGR2RGB))
+                        st.success("✅ First frame extracted from uploaded video.")
+                    else:
+                        st.warning("Could not read video. Upload video in the section below first.")
                 else:
-                    st.info("**Step 1 of 2 — Road Width:** Now click the **RIGHT edge** of the road/lane.")
-            else:
-                n = len(cs["zone_pts"])
-                st.info(f"**Step 2 of 2 — No-Parking Zone:** Click **point {n+1} of 4** to define the zone polygon corners.")
+                    st.info("No video uploaded yet. Upload a video below, or switch to image upload.")
 
-            # ── Draw annotations on image ─────────────────────────────────
-            display_img = calib_img.copy()
-            draw = ImageDraw.Draw(display_img)
+            if calib_img:
+                # Convert image to base64 for embedding in HTML
+                buf = io.BytesIO()
+                calib_img.save(buf, format="JPEG", quality=80)
+                img_b64 = base64.b64encode(buf.getvalue()).decode()
+                orig_w, orig_h = calib_img.size
+                display_w = min(760, orig_w)
+                display_h = int(orig_h * display_w / orig_w)
 
-            # Draw saved zones in green
-            for z in cs["saved_zones"]:
-                pts = [tuple(p) for p in z["polygon"]]
-                draw.polygon(pts, outline=(0, 220, 80), fill=(0, 220, 80, 60))
-                for p in pts:
-                    draw.ellipse([p[0]-5, p[1]-5, p[0]+5, p[1]+5], fill=(0, 220, 80))
+                canvas_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body {{ margin:0; background:#111; font-family:sans-serif; color:#eee; }}
+  #toolbar {{ padding:8px; background:#1a1a2e; display:flex; gap:8px; align-items:center; flex-wrap:wrap; border-bottom:1px solid #333; }}
+  #status {{ flex:1; font-size:0.85rem; color:#aef; font-weight:600; }}
+  button {{ padding:6px 14px; border-radius:6px; border:none; cursor:pointer; font-size:0.82rem; font-weight:700; }}
+  #btnUndo  {{ background:#333; color:#eee; }}
+  #btnReset {{ background:#553; color:#ffd; }}
+  #btnSend  {{ background:#1a7a3a; color:#fff; }}
+  #btnSend:disabled {{ background:#333; color:#666; cursor:not-allowed; }}
+  #container {{ position:relative; display:inline-block; line-height:0; }}
+  #canvas {{ position:absolute; top:0; left:0; cursor:crosshair; }}
+  #toast {{ display:none; margin:8px; padding:8px 14px; border-radius:6px; font-weight:700; font-size:0.85rem; }}
+  .toast-ok  {{ background:#1a7a3a; color:#fff; }}
+  .toast-err {{ background:#7a1a1a; color:#fff; }}
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <div id="status">Step 1: Click the LEFT edge of the road/lane</div>
+  <button id="btnUndo" onclick="undo()">↩️ Undo</button>
+  <button id="btnReset" onclick="reset()">🔄 Reset</button>
+  <button id="btnSend" onclick="sendPoints()" disabled>💾 Save Calibration</button>
+</div>
+<div id="toast"></div>
+<div id="container">
+  <img id="bg" src="data:image/jpeg;base64,{img_b64}"
+       width="{display_w}" height="{display_h}"
+       onload="initCanvas()" style="display:block;">
+  <canvas id="canvas" width="{display_w}" height="{display_h}"></canvas>
+</div>
+<script>
+const ORIG_W = {orig_w}, ORIG_H = {orig_h};
+const DISP_W = {display_w}, DISP_H = {display_h};
+const scaleX = ORIG_W / DISP_W, scaleY = ORIG_H / DISP_H;
+const CAM_ID = "{cam_id_calib}";
+const API_BASE = "{API_BASE}";
 
-            # Draw road width line in cyan
-            if len(cs["road_pts"]) == 2:
-                p1, p2 = tuple(cs["road_pts"][0]), tuple(cs["road_pts"][1])
-                draw.line([p1, p2], fill=(0, 220, 255), width=3)
-                draw.ellipse([p1[0]-5, p1[1]-5, p1[0]+5, p1[1]+5], fill=(0, 220, 255))
-                draw.ellipse([p2[0]-5, p2[1]-5, p2[0]+5, p2[1]+5], fill=(0, 220, 255))
-            elif len(cs["road_pts"]) == 1:
-                p1 = tuple(cs["road_pts"][0])
-                draw.ellipse([p1[0]-5, p1[1]-5, p1[0]+5, p1[1]+5], fill=(0, 220, 255))
+let phase = 'road_left';
+let roadPts = [], zonePts = [], savedZones = [];
+let canvas, ctx;
 
-            # Draw current zone points in red
-            for i, p in enumerate(cs["zone_pts"]):
-                pt = tuple(p)
-                draw.ellipse([pt[0]-5, pt[1]-5, pt[0]+5, pt[1]+5], fill=(255, 80, 80))
-                if i > 0:
-                    draw.line([tuple(cs["zone_pts"][i-1]), pt], fill=(255, 80, 80), width=2)
+function initCanvas() {{
+  canvas = document.getElementById('canvas');
+  ctx = canvas.getContext('2d');
+  canvas.addEventListener('click', handleClick);
+  redraw();
+}}
 
-            # ── Clickable image ───────────────────────────────────────────
-            # Resize for display (max 800px wide)
-            orig_w, orig_h = display_img.size
-            display_w = min(800, orig_w)
-            scale = display_w / orig_w
-            display_h = int(orig_h * scale)
-            display_resized = display_img.resize((display_w, display_h))
+function handleClick(e) {{
+  const rect = canvas.getBoundingClientRect();
+  const dx = Math.round((e.clientX - rect.left) * (DISP_W / rect.width));
+  const dy = Math.round((e.clientY - rect.top)  * (DISP_H / rect.height));
+  const ox = Math.round(dx * scaleX), oy = Math.round(dy * scaleY);
 
-            clicked = streamlit_image_coordinates(display_resized, key=f"calib_click_{cam_id_calib}")
+  if (phase === 'road_left') {{
+    roadPts = [[dx,dy,ox,oy]];
+    phase = 'road_right';
+    setStatus('Step 1: Now click the RIGHT edge of the road/lane');
+  }} else if (phase === 'road_right') {{
+    roadPts.push([dx,dy,ox,oy]);
+    phase = 'zone';
+    setStatus('Step 2: Click corner 1 of 4 for the no-parking zone polygon');
+  }} else {{
+    zonePts.push([dx,dy,ox,oy]);
+    if (zonePts.length < 4) {{
+      setStatus(`Step 2: Click corner ${{zonePts.length+1}} of 4`);
+    }} else {{
+      const rw = Math.abs(roadPts[1][2] - roadPts[0][2]);
+      savedZones.push({{ road_width_px: rw, polygon: zonePts.map(p=>[p[2],p[3]]) }});
+      zonePts = [];
+      document.getElementById('btnSend').disabled = false;
+      setStatus(`✅ Zone ${{savedZones.length}} done! Click 4 more corners for another zone, or Save.`);
+    }}
+  }}
+  redraw();
+}}
 
-            if clicked:
-                # Scale click back to original image coords
-                real_x = int(clicked["x"] / scale)
-                real_y = int(clicked["y"] / scale)
+function redraw() {{
+  if (!ctx) return;
+  ctx.clearRect(0, 0, DISP_W, DISP_H);
+  savedZones.forEach(z => {{
+    const pts = z.polygon.map(p => [Math.round(p[0]/scaleX), Math.round(p[1]/scaleY)]);
+    ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+    pts.slice(1).forEach(p => ctx.lineTo(p[0], p[1]));
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0,220,80,0.25)'; ctx.fill();
+    ctx.strokeStyle = '#00dc50'; ctx.lineWidth = 2; ctx.stroke();
+    pts.forEach(p => dot(p[0], p[1], '#00dc50'));
+  }});
+  if (roadPts.length >= 1) dot(roadPts[0][0], roadPts[0][1], '#00dcff');
+  if (roadPts.length === 2) {{
+    ctx.beginPath(); ctx.moveTo(roadPts[0][0], roadPts[0][1]);
+    ctx.lineTo(roadPts[1][0], roadPts[1][1]);
+    ctx.strokeStyle = '#00dcff'; ctx.lineWidth = 3; ctx.stroke();
+    dot(roadPts[1][0], roadPts[1][1], '#00dcff');
+  }}
+  zonePts.forEach((p, i) => {{
+    dot(p[0], p[1], '#ff5050');
+    if (i > 0) {{
+      ctx.beginPath(); ctx.moveTo(zonePts[i-1][0], zonePts[i-1][1]);
+      ctx.lineTo(p[0], p[1]);
+      ctx.strokeStyle = '#ff5050'; ctx.lineWidth = 2; ctx.stroke();
+    }}
+  }});
+}}
 
-                if cs["phase"] == "road":
-                    cs["road_pts"].append([real_x, real_y])
-                    if len(cs["road_pts"]) == 2:
-                        cs["phase"] = "zone"
-                        st.rerun()
-                    else:
-                        st.rerun()
+function dot(x, y, color) {{
+  ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI*2);
+  ctx.fillStyle = color; ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+}}
 
-                elif cs["phase"] == "zone":
-                    cs["zone_pts"].append([real_x, real_y])
-                    if len(cs["zone_pts"]) == 4:
-                        # Zone complete — save it
-                        road_w = abs(cs["road_pts"][1][0] - cs["road_pts"][0][0]) if len(cs["road_pts"]) == 2 else 640
-                        cs["saved_zones"].append({
-                            "road_width_px": road_w,
-                            "polygon": cs["zone_pts"].copy()
-                        })
-                        cs["zone_pts"] = []
-                        st.success(f"✅ Zone {len(cs['saved_zones'])} saved! Click 4 more points for another zone, or click **Save Calibration** below.")
-                        st.rerun()
-                    else:
-                        st.rerun()
+function setStatus(msg) {{ document.getElementById('status').textContent = msg; }}
 
-            # ── Status display ────────────────────────────────────────────
-            col_s1, col_s2 = st.columns(2)
-            with col_s1:
-                if len(cs["road_pts"]) == 2:
-                    rw = abs(cs["road_pts"][1][0] - cs["road_pts"][0][0])
-                    st.success(f"✅ Road width: **{rw}px**")
-            with col_s2:
-                st.info(f"**{len(cs['saved_zones'])} zone(s)** marked so far.")
+function showToast(msg, ok) {{
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = ok ? 'toast-ok' : 'toast-err';
+  t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 4000);
+}}
 
-            # ── Action buttons ────────────────────────────────────────────
-            btn_col1, btn_col2, btn_col3 = st.columns(3)
-            with btn_col1:
-                if st.button("↩️ Undo Last Point", use_container_width=True):
-                    if cs["zone_pts"]:
-                        cs["zone_pts"].pop()
-                    elif cs["saved_zones"]:
-                        removed = cs["saved_zones"].pop()
-                        cs["zone_pts"] = removed["polygon"]
-                        cs["phase"] = "zone"
-                    elif cs["road_pts"]:
-                        cs["road_pts"].pop()
-                        cs["phase"] = "road"
-                    st.rerun()
+function undo() {{
+  if (zonePts.length > 0) {{ zonePts.pop(); }}
+  else if (savedZones.length > 0) {{
+    const z = savedZones.pop();
+    zonePts = z.polygon.map(p => [Math.round(p[0]/scaleX), Math.round(p[1]/scaleY), p[0], p[1]]);
+    phase = 'zone';
+    if (savedZones.length === 0) document.getElementById('btnSend').disabled = true;
+  }} else if (roadPts.length > 0) {{
+    roadPts.pop(); phase = roadPts.length === 0 ? 'road_left' : 'road_right';
+  }}
+  redraw();
+}}
 
-            with btn_col2:
-                if st.button("🔄 Reset All", use_container_width=True):
-                    st.session_state["calib_state"] = {
-                        "phase": "road", "road_pts": [], "zone_pts": [], "saved_zones": []
-                    }
-                    st.rerun()
+function reset() {{
+  roadPts=[]; zonePts=[]; savedZones=[]; phase='road_left';
+  document.getElementById('btnSend').disabled = true;
+  setStatus('Step 1: Click the LEFT edge of the road/lane'); redraw();
+}}
 
-            with btn_col3:
-                can_save = len(cs["saved_zones"]) > 0 and len(cs["road_pts"]) == 2
-                if st.button("💾 Save Calibration", type="primary", use_container_width=True, disabled=not can_save):
-                    os.makedirs("data", exist_ok=True)
-                    # Load existing calibration if any
-                    calib_data = {}
-                    if os.path.exists("data/calibration.json"):
-                        try:
-                            with open("data/calibration.json", "r") as f:
-                                calib_data = json.load(f)
-                        except Exception:
-                            pass
+async function sendPoints() {{
+  const btn = document.getElementById('btnSend');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  const payload = {{
+    cam_id: CAM_ID,
+    road_pts: roadPts.map(p=>[p[2],p[3]]),
+    saved_zones: savedZones
+  }};
+  try {{
+    const resp = await fetch(API_BASE + '/api/save-calibration', {{
+      method: 'POST',
+      headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify(payload)
+    }});
+    const data = await resp.json();
+    if (data.status === 'saved') {{
+      showToast(`✅ Saved ${{data.zones}} zone(s) for ${{data.cam}}! Reload the page to see the update.`, true);
+      btn.textContent = '✅ Saved!';
+    }} else {{
+      showToast('❌ Error: ' + (data.msg || 'Unknown'), false);
+      btn.disabled = false; btn.textContent = '💾 Save Calibration';
+    }}
+  }} catch(err) {{
+    showToast('❌ Could not reach API: ' + err, false);
+    btn.disabled = false; btn.textContent = '💾 Save Calibration';
+  }}
+}}
+</script>
+</body>
+</html>"""
 
-                    # Build zones for this camera
-                    calib_data[cam_id_calib] = {"zones": {}}
-                    for i, z in enumerate(cs["saved_zones"]):
-                        calib_data[cam_id_calib]["zones"][f"Zone-{i+1}"] = {
-                            "road_width_px": z["road_width_px"],
-                            "polygon": z["polygon"]
-                        }
 
-                    with open("data/calibration.json", "w") as f:
-                        json.dump(calib_data, f, indent=2)
+                components.html(canvas_html, height=display_h + 60, scrolling=False)
 
-                    st.success(f"✅ Calibration saved for **{cam_id_calib}** with {len(cs['saved_zones'])} zone(s)!")
-                    st.balloons()
 
-                    # Reset state
-                    st.session_state["calib_state"] = {
-                        "phase": "road", "road_pts": [], "zone_pts": [], "saved_zones": []
-                    }
-
-        # Show current calibration.json if it exists
+        # ── Always show saved calibration (OUTSIDE expander so it always renders) ──
+        import json as _json
         if os.path.exists("data/calibration.json"):
-            with open("data/calibration.json") as f:
-                existing = json.load(f)
-            st.markdown("#### 📋 Current Saved Calibration")
-            st.json(existing)
+            try:
+                with open("data/calibration.json") as f:
+                    existing = _json.load(f)
+                st.markdown("#### 📋 Current Saved Calibration")
+                st.json(existing)
+            except Exception:
+                pass
+
+
+    calibration_tool()
 
     st.markdown("---")
+
+
 
     st.markdown("### 🎛️ Upload & Run AI Detection")
     uploaded_file = st.file_uploader("Upload a traffic video (.mp4) to run the AI detector", type=["mp4", "avi", "mov"])

@@ -1,10 +1,20 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import sqlite3
 import os
 
 app = FastAPI(title="ParkIQ API")
+
+# Allow Streamlit (and any local origin) to call the API from the browser
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 os.makedirs("data", exist_ok=True)
 DB_FILE = "data/parkiq.db"
@@ -338,6 +348,37 @@ def set_buzzer(payload: BuzzerUpdate):
     AppState.cctv_alert_level = payload.level
     print(f"[SYSTEM] Hardware Trigger -> LED: {payload.level} | Buzzer: {payload.active}")
     return {"status": "success"}
+
+@app.post("/api/save-calibration")
+async def save_calibration(request: Request):
+    """Save zone calibration JSON from the browser canvas tool."""
+    import json
+    try:
+        data = await request.json()
+        os.makedirs("data", exist_ok=True)
+        existing = {}
+        if os.path.exists("data/calibration.json"):
+            try:
+                with open("data/calibration.json") as f:
+                    existing = json.load(f)
+            except Exception:
+                pass
+        cam_id      = data.get("cam_id", "CCTV-CAM-01")
+        road_pts    = data.get("road_pts", [])
+        saved_zones = data.get("saved_zones", [])
+        if not saved_zones or len(road_pts) != 2:
+            return JSONResponse({"status": "error", "msg": "Invalid data"}, status_code=400)
+        existing[cam_id] = {"zones": {}}
+        for i, z in enumerate(saved_zones):
+            existing[cam_id]["zones"][f"Zone-{i+1}"] = {
+                "road_width_px": z["road_width_px"],
+                "polygon": z["polygon"]
+            }
+        with open("data/calibration.json", "w") as f:
+            json.dump(existing, f, indent=2)
+        return {"status": "saved", "cam": cam_id, "zones": len(saved_zones)}
+    except Exception as e:
+        return JSONResponse({"status": "error", "msg": str(e)}, status_code=500)
 
 if __name__ == "__main__":
     import uvicorn
