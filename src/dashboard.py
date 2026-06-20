@@ -797,19 +797,22 @@ elif page == "🎥 City-Wide CCTV Network":
     if uploaded_file is not None:
         import os
         os.makedirs("data", exist_ok=True)
-        video_path = f"data/uploaded_video.mp4"
+        video_path = "data/uploaded_video.mp4"
         with open(video_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
-                subprocess.Popen(["python", "src/cctv_detector.py", "--source", video_path, "--calibrate"])
-                st.info("Check your taskbar! A calibration window has opened. Click your zones and press ENTER. Your zones will be auto-saved!")
+
+        st.success("Video uploaded! Calibrate your zones in the tool above, then start detection below.")
+
+        detector_running = (
+            "detector_proc" in st.session_state
+            and st.session_state["detector_proc"] is not None
+            and st.session_state["detector_proc"].poll() is None
+        )
+
+        bc2, bc3 = st.columns(2)
         with bc2:
-            detector_running = (
-                "detector_proc" in st.session_state
-                and st.session_state["detector_proc"] is not None
-                and st.session_state["detector_proc"].poll() is None
-            )
             if not detector_running:
-                if st.button("🚀 2. Start Live Detection", type="primary", use_container_width=True):
+                if st.button("🚀 Start Live Detection", type="primary", use_container_width=True):
                     import subprocess
                     proc = subprocess.Popen(["python", "src/cctv_detector.py", "--source", video_path])
                     st.session_state["detector_proc"] = proc
@@ -820,10 +823,9 @@ elif page == "🎥 City-Wide CCTV Network":
         with bc3:
             if detector_running:
                 if st.button("⏹️ Stop Stream", type="secondary", use_container_width=True):
-                    import psutil, os, signal
+                    import psutil
                     proc = st.session_state["detector_proc"]
                     try:
-                        # Kill entire process tree (YOLO + OpenCV children)
                         parent = psutil.Process(proc.pid)
                         for child in parent.children(recursive=True):
                             child.kill()
@@ -834,18 +836,16 @@ elif page == "🎥 City-Wide CCTV Network":
                         except Exception:
                             pass
                     st.session_state["detector_proc"] = None
-                    
-                    # Force hardware state reset on manual stop
                     try:
                         import requests
-                        requests.post(f"{API_BASE}/api/set-buzzer", 
-                                      json={"active": False, "zone_id": "", "level": "VACANT"}, 
+                        requests.post(f"{API_BASE}/api/set-buzzer",
+                                      json={"active": False, "zone_id": "", "level": "VACANT"},
                                       timeout=2.0)
                     except Exception:
                         pass
-                        
                     st.warning("Detector stopped. Hardware LEDs reset.")
                     st.rerun()
+
 
     st.markdown("---")
 
