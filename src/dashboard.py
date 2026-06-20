@@ -855,7 +855,8 @@ async function sendPoints() {{
             if not detector_running:
                 if st.button("🚀 Start Live Detection", type="primary", use_container_width=True):
                     import subprocess
-                    proc = subprocess.Popen(["python", "src/cctv_detector.py", "--source", video_path, "--no-show"])
+                    import sys
+                    proc = subprocess.Popen([sys.executable, "src/cctv_detector.py", "--source", video_path, "--no-show"])
                     st.session_state["detector_proc"] = proc
                     st.success("Detector started! Scroll down to see the Live Feed and Telemetry.")
                     st.rerun()
