@@ -793,8 +793,18 @@ async function sendPoints() {{
     }});
     const data = await resp.json();
     if (data.status === 'saved') {{
-      showToast(`✅ Saved ${{data.zones}} zone(s) for ${{data.cam}}! Reload the page to see the update.`, true);
+      showToast(`✅ Saved ${{data.zones}} zone(s) for ${{data.cam}}!`, true);
       btn.textContent = '✅ Saved!';
+      setTimeout(() => {{
+        try {{
+          const expanders = window.parent.document.querySelectorAll('summary');
+          for (let exp of expanders) {{
+            if (exp.textContent.includes('Zone Calibration Tool')) {{
+              exp.click();
+            }}
+          }}
+        }} catch(e) {{}}
+      }}, 1200);
     }} else {{
       showToast('❌ Error: ' + (data.msg || 'Unknown'), false);
       btn.disabled = false; btn.textContent = '💾 Save Calibration';
