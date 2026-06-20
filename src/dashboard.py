@@ -934,7 +934,16 @@ function goFS() {{
                 if os.path.exists("data/latest_frame_CCTV-CAM-01.jpg"):
                     st.image("data/latest_frame_CCTV-CAM-01.jpg", use_container_width=True)
                 else:
-                    st.error("Camera Offline / Not Available")
+                    st.components.v1.html("""
+<style>
+body { margin:0; background:#0e1117; }
+.cam-box { border:2px solid #444; border-radius:10px; overflow:hidden; background:#111; position:relative; min-height:300px; }
+.offline { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; color:#888; font-family:sans-serif; z-index:1; }
+</style>
+<div class="cam-box">
+  <div class="offline"><h3>&#128683;</h3><p>Camera Offline / Not Available</p></div>
+</div>
+""", height=300)
             cam1_cloud_feed()
 
 
@@ -975,7 +984,16 @@ function goFS() {{
                 if os.path.exists("data/latest_frame_CCTV-CAM-02.jpg"):
                     st.image("data/latest_frame_CCTV-CAM-02.jpg", use_container_width=True)
                 else:
-                    st.error("Camera Offline / Not Available")
+                    st.components.v1.html("""
+<style>
+body { margin:0; background:#0e1117; }
+.cam-box { border:2px solid #444; border-radius:10px; overflow:hidden; background:#111; position:relative; min-height:300px; }
+.offline { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; color:#888; font-family:sans-serif; z-index:1; }
+</style>
+<div class="cam-box">
+  <div class="offline"><h3>&#128683;</h3><p>Camera Offline / Not Available</p></div>
+</div>
+""", height=300)
             cam2_cloud_feed()
     
     st.markdown("""
