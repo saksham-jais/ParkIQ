@@ -823,15 +823,10 @@ async function sendPoints() {{
             try:
                 with open("data/calibration.json") as f:
                     existing = _json.load(f)
-                st.markdown("#### 📋 Current Saved Calibration")
-                st.json(existing)
+                # st.markdown("#### 📋 Current Saved Calibration")
+                # st.json(existing)
             except Exception:
                 pass
-
-
-    calibration_tool()
-
-    st.markdown("---")
 
 
 
@@ -897,8 +892,12 @@ async function sendPoints() {{
                     st.warning("Detector stopped. Hardware LEDs reset.")
                     st.rerun()
 
+    st.markdown("---")
+
+    calibration_tool()
 
     st.markdown("---")
+
     st.markdown("### 📷 Live CCTV Feed")
     v1, v2 = st.columns(2)
 
@@ -915,7 +914,8 @@ body {{ margin:0; background:#0e1117; }}
 </style>
 <div class="cam-box" id="box1">
   <div class="offline"><h3>&#128683;</h3><p>Camera Offline</p></div>
-  <img src="{API_BASE}/api/video_feed?cam_id=CCTV-CAM-01">
+  <img src="{API_BASE}/api/video_feed?cam_id=CCTV-CAM-01"
+       onload="var h=this.offsetHeight; if(h>0 && window.frameElement) window.frameElement.style.height=(h+20)+'px';">
   <button class="fs-btn" onclick="goFS()" title="Toggle Full Screen">&#x26F6;</button>
 </div>
 <script>
@@ -930,7 +930,7 @@ function goFS() {{
   }}
 }}
 </script>
-""", height=380)
+""", height=480)
 
     with v2:
         st.markdown("**Node 2: CCTV-CAM-02**")
@@ -945,7 +945,8 @@ body {{ margin:0; background:#0e1117; }}
 </style>
 <div class="cam-box" id="box2">
   <div class="offline"><h3>&#128683;</h3><p>Camera Offline</p></div>
-  <img src="{API_BASE}/api/video_feed?cam_id=CCTV-CAM-02">
+  <img src="{API_BASE}/api/video_feed?cam_id=CCTV-CAM-02"
+       onload="var h=this.offsetHeight; if(h>0 && window.frameElement) window.frameElement.style.height=(h+20)+'px';">
   <button class="fs-btn" onclick="goFS()" title="Toggle Full Screen">&#x26F6;</button>
 </div>
 <script>
@@ -960,7 +961,7 @@ function goFS() {{
   }}
 }}
 </script>
-""", height=380)
+""", height=480)
     
     st.markdown("""
         <p style="font-size:0.78rem;color:#888;margin-top:4px;">
