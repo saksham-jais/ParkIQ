@@ -981,6 +981,23 @@ async function sendPoints() {{
         if "detector_proc" in st.session_state and st.session_state["detector_proc"] is not None:
             if st.session_state["detector_proc"].poll() is not None:
                 st.session_state["detector_proc"] = None
+                # Clean up stale frame files so cameras show as offline
+                import os
+                for _cam in ["CCTV-CAM-01", "CCTV-CAM-02"]:
+                    _fp = f"data/current_frame_{_cam}.jpg"
+                    try:
+                        if os.path.exists(_fp):
+                            os.remove(_fp)
+                    except Exception:
+                        pass
+                # Reset hardware LEDs
+                try:
+                    import requests
+                    requests.post(f"{API_BASE}/api/set-buzzer",
+                                  json={"active": False, "zone_id": "", "level": "VACANT"},
+                                  timeout=2.0)
+                except Exception:
+                    pass
                 st.rerun()
 
         try:
