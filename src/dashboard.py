@@ -936,9 +936,9 @@ function goFS() {{
                 else:
                     st.components.v1.html("""
 <style>
-body { margin:0; background:#0e1117; }
-.cam-box { border:2px solid #444; border-radius:10px; overflow:hidden; background:#111; position:relative; min-height:300px; }
-.offline { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; color:#888; font-family:sans-serif; z-index:1; }
+body { margin:0; background:#0e1117; overflow:hidden; }
+.cam-box { border:2px solid #444; border-radius:10px; background:#111; position:relative; height:290px; box-sizing:border-box; width:100%; }
+.offline { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; color:#888; font-family:sans-serif; z-index:1; width:100%; padding:0 10px; box-sizing:border-box; }
 </style>
 <div class="cam-box">
   <div class="offline"><h3>&#128683;</h3><p>Camera Offline / Not Available</p></div>
@@ -986,9 +986,9 @@ function goFS() {{
                 else:
                     st.components.v1.html("""
 <style>
-body { margin:0; background:#0e1117; }
-.cam-box { border:2px solid #444; border-radius:10px; overflow:hidden; background:#111; position:relative; min-height:300px; }
-.offline { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; color:#888; font-family:sans-serif; z-index:1; }
+body { margin:0; background:#0e1117; overflow:hidden; }
+.cam-box { border:2px solid #444; border-radius:10px; background:#111; position:relative; height:290px; box-sizing:border-box; width:100%; }
+.offline { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; color:#888; font-family:sans-serif; z-index:1; width:100%; padding:0 10px; box-sizing:border-box; }
 </style>
 <div class="cam-box">
   <div class="offline"><h3>&#128683;</h3><p>Camera Offline / Not Available</p></div>
