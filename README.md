@@ -1,5 +1,7 @@
 # 🚦 ParkIQ — AI-Powered Parking Impact Intelligence
 
+![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+
 > **Gridlock Hackathon 2.0 — Round 2**
 > *From Parking Violations to Congestion Intelligence*
 
