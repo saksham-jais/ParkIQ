@@ -215,7 +215,12 @@ def get_cctv_stats():
     conn.close()
     return stats
 
-
+@app.get("/health")
+def health():
+    return {
+        "status": "healthy"
+    }
+    
 
 @app.get("/api/cctv-events/high-risk")
 def get_high_risk_zones():
