@@ -4,7 +4,7 @@
 
 <br/>
 
-[![Typing SVG](https://readme-typing-svg.demolab.com?font=JetBrains+Mono&size=20&duration=2800&pause=900&color=FDE047&center=true&vCenter=true&width=620&lines=Transform+parking+violations+into+intelligence.;Prioritise+enforcement+actions+with+AI.;Clear+gridlock+before+it+cascades.;Respond+with+data%2C+not+guesswork.)](https://git.io/typing-svg)
+<a href="https://git.io/typing-svg"><img src="https://readme-typing-svg.demolab.com/?font=JetBrains+Mono&size=20&duration=2800&pause=900&color=FDE047&center=true&vCenter=true&width=620&lines=Transform+parking+violations+into+intelligence.;Prioritise+enforcement+actions+with+AI.;Clear+gridlock+before+it+cascades.;Respond+with+data%2C+not+guesswork." alt="Typing SVG" /></a>
 
 <br/>
 
